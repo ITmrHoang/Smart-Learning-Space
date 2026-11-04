@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f7fb">
+    <title>Learning Space</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="Learning Space home" data-navigate="dashboard">
+          <span class="brand-mark" aria-hidden="true">L</span>
+          <span>learning<span class="brand-light">space</span></span>
+        </a>
+
+        <p class="nav-label">WORKSPACE</p>
+        <nav class="primary-nav" aria-label="Main navigation">
+          <a class="nav-link active" href="#dashboard" data-page="dashboard" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">⌂</span> Overview
+          </a>
+          <a class="nav-link" href="#classes" data-page="classes">
+            <span class="nav-icon" aria-hidden="true">▦</span> My classes
+            <span class="nav-count">3</span>
+          </a>
+          <a class="nav-link" href="#assignments" data-page="assignments">
+            <span class="nav-icon" aria-hidden="true">▤</span> Assignments
+            <span class="nav-count" id="due-count">2</span>
+          </a>
+          <a class="nav-link" href="#messages" data-page="messages">
+            <span class="nav-icon" aria-hidden="true">▱</span> Messages
+            <span class="unread-dot" aria-label="Unread messages"></span>
+          </a>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="help-card">
+            <span class="help-icon" aria-hidden="true">✦</span>
+            <p>Make today a good day to learn.</p>
+            <span>Small steps add up.</span>
+          </div>
+          <button class="profile-button" type="button" aria-label="Signed in as Alex Morgan">
+            <span class="avatar avatar-purple">AM</span>
+            <span class="profile-copy"><strong>Alex Morgan</strong><small>Learning member</small></span>
+            <span class="profile-menu" aria-hidden="true">···</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="breadcrumbs"><span>Workspace</span><span class="breadcrumb-slash">/</span><strong id="breadcrumb-current">Overview</strong></div>
+          <div class="topbar-actions">
+            <span class="demo-label"><span></span> Demo workspace</span>
+            <button class="icon-button notification-button" type="button" aria-label="Notifications">♧<span></span></button>
+            <span class="avatar avatar-purple top-avatar" aria-hidden="true">AM</span>
+          </div>
+        </header>
+
+        <div class="content-wrap">
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow" id="today-label">WEDNESDAY, NOVEMBER 4</p>
+              <h1 id="page-title">Your learning space</h1>
+              <p class="page-description" id="page-description">A little progress each day adds up to big results.</p>
+            </div>
+            <div class="role-switch" role="group" aria-label="Choose dashboard perspective">
+              <button type="button" class="role-button active" data-role="student" aria-pressed="true">Student</button>
+              <button type="button" class="role-button" data-role="teacher" aria-pressed="false">Teacher</button>
+            </div>
+          </section>
+
+          <section class="page-view" data-view="dashboard">
+            <div class="welcome-banner">
+              <div class="welcome-copy">
+                <span class="welcome-kicker">YOUR SPACE TO GROW</span>
+                <h2 id="welcome-title">Ready for a great week, Alex?</h2>
+                <p id="welcome-text">Your classes, assignments, and teachers are all in one place. Let’s make today count.</p>
+                <button class="button button-light" type="button" data-navigate="assignments"><span id="welcome-action">See my assignments</span><span aria-hidden="true"> →</span></button>
+              </div>
+              <div class="banner-art" aria-hidden="true">
+                <div class="art-sun"></div><div class="art-book book-back"></div><div class="art-book book-front"></div>
+                <div class="art-spark spark-one">✦</div><div class="art-spark spark-two">✧</div>
+              </div>
+            </div>
+
+            <div class="section-heading overview-heading">
+              <div><h2>Your week at a glance</h2><p>Stay on top of what’s happening in your learning space.</p></div>
+              <button class="text-button" type="button" data-navigate="classes">All classes <span aria-hidden="true">→</span></button>
+            </div>
+
+            <div class="overview-grid">
+              <article class="stat-card">
+                <div class="stat-top"><span class="stat-icon icon-lilac">▦</span><span class="stat-change">This term</span></div>
+                <p class="stat-number">3</p><p class="stat-label">Active classes</p>
+                <div class="stat-foot"><span class="mini-avatars"><i>JM</i><i>SK</i><i>+</i></span><span>with your teachers</span></div>
+              </article>
+              <article class="stat-card">
+                <div class="stat-top"><span class="stat-icon icon-peach">◷</span><span class="stat-change change-warm">Keep it up</span></div>
+                <p class="stat-number">2</p><p class="stat-label">Due this week</p>
+                <div class="stat-foot"><span class="stat-foot-dot dot-peach"></span><span>Next up: Science, tomorrow</span></div>
+              </article>
+              <article class="stat-card">
+                <div class="stat-top"><span class="stat-icon icon-mint">✦</span><span class="stat-change change-green">On track</span></div>
+                <p class="stat-number">5<span class="stat-unit"> days</span></p><p class="stat-label">Learning streak</p>
+                <div class="stat-foot"><span class="streak-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span>One day at a time</span></div>
+              </article>
+            </div>
+
+            <div class="dashboard-columns">
+              <section class="panel class-panel">
+                <div class="section-heading panel-heading">
+                  <div><h2>Your classes</h2><p>Pick up where you left off.</p></div>
+                  <button class="more-button" type="button" aria-label="View all classes" data-navigate="classes">···</button>
+                </div>
+                <div class="class-list">
+                  <article class="class-row">
+                    <span class="class-icon class-blue">π</span><span class="class-info"><strong>Math &amp; Logic</strong><small>Ms. Jordan · Room 204</small></span><span class="class-progress"><i><b style="width:72%"></b></i><small>72%</small></span><button class="arrow-button" type="button" aria-label="Open Math and Logic class" data-navigate="classes">→</button>
+                  </article>
+                  <article class="class-row">
+                    <span class="class-icon class-yellow">⚗</span><span class="class-info"><strong>Science Lab</strong><small>Mr. Kim · Science wing</small></span><span class="class-progress"><i><b style="width:58%"></b></i><small>58%</small></span><button class="arrow-button" type="button" aria-label="Open Science Lab class" data-navigate="classes">→</button>
+                  </article>
+                  <article class="class-row">
+                    <span class="class-icon class-pink">Aa</span><span class="class-info"><strong>Creative Writing</strong><small>Ms. Rivera · Room 108</small></span><span class="class-progress"><i><b style="width:86%"></b></i><small>86%</small></span><button class="arrow-button" type="button" aria-label="Open Creative Writing class" data-navigate="classes">→</button>
+                  </article>
+                </div>
+                <button class="panel-link" type="button" data-navigate="classes">Explore your classrooms <span aria-hidden="true">→</span></button>
+              </section>
+
+              <section class="panel assignment-panel">
+                <div class="section-heading panel-heading">
+                  <div><h2>Coming up</h2><p>Small steps, steady progress.</p></div>
+                  <button class="more-button" type="button" aria-label="View all assignments" data-navigate="assignments">···</button>
+                </div>
+                <div class="upcoming-list">
+                  <article class="upcoming-item">
+                    <span class="date-tile"><small>NOV</small><strong>5</strong></span>
+                    <span class="upcoming-info"><strong>Lab observation notes</strong><small>Science Lab · Mr. Kim</small></span>
+                    <span class="status-pill status-soon">Tomorrow</span>
+                  </article>
+                  <article class="upcoming-item">
+                    <span class="date-tile date-tile-lilac"><small>NOV</small><strong>7</strong></span>
+                    <span class="upcoming-info"><strong>Patterns in nature</strong><small>Math &amp; Logic · Ms. Jordan</small></span>
+                    <span class="status-pill status-next">In 3 days</span>
+                  </article>
+                </div>
+                <button class="panel-link" type="button" data-navigate="assignments">See all assignments <span aria-hidden="true">→</span></button>
+              </section>
+            </div>
+            <p class="data-note">This demo uses sample classroom data. No account or personal data is required.</p>
+          </section>
+
+          <section class="page-view hidden" data-view="classes">
+            <div class="section-heading page-section-heading">
+              <div><h2>Learning together</h2><p>Your classrooms bring lessons, teachers, and classmates together.</p></div>
+              <span class="small-tag">3 active classes</span>
+            </div>
+            <div class="class-card-grid">
+              <article class="large-class-card">
+                <div class="large-class-top class-blue-bg"><span class="class-icon class-blue">π</span><span class="small-tag">Math &amp; Logic</span></div>
+                <div class="large-class-body"><p class="teacher-line"><span class="avatar avatar-blue">JJ</span> Ms. Jordan</p><h3>Thinking in patterns</h3><p>Explore number patterns, puzzles, and the logic behind the world around us.</p><div class="class-card-meta"><span>◷ &nbsp;Today, 10:30 AM</span><span>Room 204</span></div><button class="button button-outline" type="button" data-navigate="assignments">View class assignments <span aria-hidden="true">→</span></button></div>
+              </article>
+              <article class="large-class-card">
+                <div class="large-class-top class-yellow-bg"><span class="class-icon class-yellow">⚗</span><span class="small-tag">Science Lab</span></div>
+                <div class="large-class-body"><p class="teacher-line"><span class="avatar avatar-green">DK</span> Mr. Kim</p><h3>Observe. Question. Discover.</h3><p>Use curiosity and careful observation to understand the natural world.</p><div class="class-card-meta"><span>◷ &nbsp;Tomorrow, 1:15 PM</span><span>Science wing</span></div><button class="button button-outline" type="button" data-navigate="assignments">View class assignments <span aria-hidden="true">→</span></button></div>
+              </article>
+              <article class="large-class-card">
+                <div class="large-class-top class-pink-bg"><span class="class-icon class-pink">Aa</span><span class="small-tag">Creative Writing</span></div>
+                <div class="large-class-body"><p class="teacher-line"><span class="avatar avatar-pink">ER</span> Ms. Rivera</p><h3>Find your story</h3><p>Practice the craft of writing and share the ideas only you can tell.</p><div class="class-card-meta"><span>◷ &nbsp;Wed, 9:00 AM</span><span>Room 108</span></div><button class="button button-outline" type="button" data-navigate="assignments">View class assignments <span aria-hidden="true">→</span></button></div>
+              </article>
+            </div>
+            <p class="data-note">This demo uses sample classroom data. No account or personal data is required.</p>
+          </section>
+
+          <section class="page-view hidden" data-view="assignments">
+            <div class="section-heading page-section-heading">
+              <div><h2>A clear next step</h2><p>Keep track of work from all your classes in one place.</p></div>
+              <div class="filter-group" role="group" aria-label="Filter assignments">
+                <button class="filter-button active" type="button" data-filter="all" aria-pressed="true">All</button>
+                <button class="filter-button" type="button" data-filter="upcoming" aria-pressed="false">To do</button>
+                <button class="filter-button" type="button" data-filter="submitted" aria-pressed="false">Done</button>
+              </div>
+            </div>
+            <div class="assignment-table panel">
+              <div class="assignment-table-head"><span>ASSIGNMENT</span><span>CLASS</span><span>DUE DATE</span><span>STATUS</span></div>
+              <article class="assignment-row" data-status="upcoming"><span class="assignment-name"><span class="assignment-symbol symbol-yellow">⚗</span><span><strong>Lab observation notes</strong><small>Write down three things you noticed.</small></span></span><span class="assignment-class">Science Lab</span><span class="assignment-date">Nov 5, 2026</span><span class="status-pill status-soon">To do</span></article>
+              <article class="assignment-row" data-status="upcoming"><span class="assignment-name"><span class="assignment-symbol symbol-blue">π</span><span><strong>Patterns in nature</strong><small>Find a pattern and show how it works.</small></span></span><span class="assignment-class">Math &amp; Logic</span><span class="assignment-date">Nov 7, 2026</span><span class="status-pill status-next">To do</span></article>
+              <article class="assignment-row" data-status="submitted"><span class="assignment-name"><span class="assignment-symbol symbol-pink">Aa</span><span><strong>A place I remember</strong><small>A short piece of descriptive writing.</small></span></span><span class="assignment-class">Creative Writing</span><span class="assignment-date">Nov 1, 2026</span><span class="status-pill status-done">Submitted</span></article>
+            </div>
+            <p class="data-note">This demo uses sample classroom data. No account or personal data is required.</p>
+          </section>
+
+          <section class="page-view hidden" data-view="messages">
+            <div class="section-heading page-section-heading">
+              <div><h2>A little note goes a long way</h2><p>Share a question or a thought with your learning community.</p></div>
+              <span class="small-tag">Class messages</span>
+            </div>
+            <section class="panel message-panel" aria-label="Class messages">
+              <div class="message-class-heading"><span class="class-icon class-blue">π</span><span><strong>Math &amp; Logic</strong><small>Class conversation · sample messages</small></span></div>
+              <div class="message-list" id="message-list" aria-live="polite">
+                <div class="message-item"><span class="avatar avatar-blue">JJ</span><div><div class="message-meta"><strong>Ms. Jordan</strong><time>Today, 9:12 AM</time></div><p>Good morning! Today we’ll look for patterns in everyday things. Bring one example you’ve noticed.</p></div></div>
+                <div class="message-item"><span class="avatar avatar-orange">SK</span><div><div class="message-meta"><strong>Sam Kim</strong><time>Today, 9:35 AM</time></div><p>I noticed the tiles in our hallway repeat every four squares!</p></div></div>
+              </div>
+              <form class="message-form" id="message-form">
+                <label class="sr-only" for="message-input">Write a class message</label>
+                <input id="message-input" name="message" type="text" maxlength="240" placeholder="Write a kind, helpful message…" required>
+                <button class="button button-primary" type="submit">Send message <span aria-hidden="true">→</span></button>
+              </form>
+              <p class="message-disclaimer">Demo only: messages are shown on this page and are not sent or saved.</p>
+            </section>
+            <p class="data-note">This demo uses sample classroom data. No account or personal data is required.</p>
+          </section>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
