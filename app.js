@@ -55,6 +55,11 @@ document.querySelectorAll('[data-navigate]').forEach((button) => {
   button.addEventListener('click', () => showPage(button.dataset.navigate));
 });
 
+window.addEventListener('hashchange', () => {
+  const page = window.location.hash.slice(1);
+  if (pageDetails[page]) showPage(page);
+});
+
 document.querySelectorAll('[data-role]').forEach((button) => {
   button.addEventListener('click', () => {
     const isTeacher = button.dataset.role === 'teacher';
