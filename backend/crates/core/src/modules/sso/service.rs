@@ -117,7 +117,7 @@ fn link_code_hash(token_hash: &str, code: &str) -> String {
 }
 
 /// Ghi liên kết; đổi lỗi UNIQUE thành thông báo dễ hiểu.
-async fn link_identity(
+pub(super) async fn link_identity(
     conn: &mut sqlx::PgConnection,
     user_id: Uuid,
     provider: SsoProvider,
@@ -126,16 +126,20 @@ async fn link_identity(
 ) -> AppResult<()> {
     repo::insert_identity(&mut *conn, user_id, provider.as_str(), subject, email).await.map_err(|e| {
         if is_unique_violation(&e, "user_identities_provider_subject_key") {
-            AppError::conflict(
-                "SSO_ALREADY_LINKED",
-                format!("Tài khoản {} này đã liên kết với một tài khoản khác.", provider.label()),
-            )
+            already_linked_elsewhere(provider)
         } else if is_unique_violation(&e, "user_identities_user_provider_key") {
             provider_already_linked(provider)
         } else {
             e.into()
         }
     })
+}
+
+pub(super) fn already_linked_elsewhere(provider: SsoProvider) -> AppError {
+    AppError::conflict(
+        "SSO_ALREADY_LINKED",
+        format!("Tài khoản {} này đã liên kết với một tài khoản khác.", provider.label()),
+    )
 }
 
 fn provider_already_linked(provider: SsoProvider) -> AppError {
@@ -167,7 +171,7 @@ pub async fn complete_login(
         let mut tx = ctx.db.begin().await?;
         repo::touch_identity(&mut *tx, linked.id, email_claim.as_deref()).await?;
         users::touch_login(&mut *tx, user.id).await?;
-        let session = auth::issue_session(ctx, &mut *tx, &user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+        let session = auth::start_session(ctx, &mut tx, &user, client).await?;
         tx.commit().await?;
         return Ok(SsoOutcome::LoggedIn { session, created: false });
     }
@@ -243,7 +247,7 @@ async fn create_account(
         },
     )
     .await?;
-    let session = auth::issue_session(ctx, &mut *tx, &user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+    let session = auth::start_session(ctx, &mut tx, &user, client).await?;
     tx.commit().await?;
     tracing::info!(user_id = %user.id, provider = %identity.provider, "tạo tài khoản mới từ SSO");
     Ok(SsoOutcome::LoggedIn { session, created: true })
@@ -275,7 +279,7 @@ async fn claim_unverified(
     )
     .await?;
     let user = users::find_by_id(&mut *tx, user.id).await?.ok_or_else(|| AppError::internal("user biến mất"))?;
-    let session = auth::issue_session(ctx, &mut *tx, &user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+    let session = auth::start_session(ctx, &mut tx, &user, client).await?;
     tx.commit().await?;
     tracing::warn!(user_id = %user.id, "chủ email giành lại tài khoản chưa xác minh qua SSO");
     Ok(SsoOutcome::LoggedIn { session, created: false })
@@ -392,14 +396,14 @@ pub async fn confirm_link(ctx: &AppContext, req: ConfirmLinkRequest, client: &Cl
         },
     )
     .await?;
-    let session = auth::issue_session(ctx, &mut *tx, &user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+    let session = auth::start_session(ctx, &mut tx, &user, client).await?;
     tx.commit().await?;
     Ok(session)
 }
 
 // ---------- Quản lý liên kết ----------
 
-fn parse_provider(provider: &str) -> AppResult<SsoProvider> {
+pub(super) fn parse_provider(provider: &str) -> AppResult<SsoProvider> {
     provider.parse().map_err(|_| AppError::not_found("Không có nhà cung cấp đăng nhập này."))
 }
 

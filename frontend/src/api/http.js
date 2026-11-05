@@ -130,4 +130,5 @@ export const http = {
   get: (path, query, opts) => request('GET', path, { query, ...opts }),
   post: (path, body, opts) => request('POST', path, { body: body ?? {}, ...opts }),
   patch: (path, body, opts) => request('PATCH', path, { body, ...opts }),
+  del: (path, opts) => request('DELETE', path, opts),
 };

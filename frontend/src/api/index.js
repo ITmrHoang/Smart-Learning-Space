@@ -11,7 +11,21 @@ export const authApi = {
   forgotPassword: (email) => http.post('/auth/forgot-password', { email }),
   resetPassword: (token, newPassword) => http.post('/auth/reset-password', { token, newPassword }),
   changePassword: (currentPassword, newPassword) => http.post('/auth/change-password', { currentPassword, newPassword }),
+  /** Tài khoản tạo từ SSO đặt mật khẩu lần đầu. */
+  setPassword: (newPassword) => http.post('/auth/set-password', { newPassword }),
   me: () => http.get('/auth/me'),
+};
+
+export const ssoApi = {
+  /** Các nhà cung cấp đã bật: { providers: ['google', 'microsoft'] } */
+  providers: () => http.get('/auth/sso/providers'),
+  /** mode: 'login' | 'link' (liên kết thêm khi đã đăng nhập). Trả { authorizeUrl }. */
+  start: (provider, { mode = 'login', next } = {}) => http.post(`/auth/sso/${provider}/start`, { mode, next }),
+  sendLinkCode: (token) => http.post('/auth/sso/link/send-code', { token }),
+  /** Xác nhận liên kết bằng { token, password } hoặc { token, code } → phiên đăng nhập. */
+  confirmLink: (data) => http.post('/auth/sso/link', data),
+  identities: () => http.get('/auth/identities'),
+  unlink: (provider) => http.del(`/auth/identities/${provider}`),
 };
 
 export const catalogApi = {
@@ -35,6 +49,8 @@ export const adminApi = {
   lockUser: (id) => http.post(`/admin/users/${id}/lock`),
   unlockUser: (id) => http.post(`/admin/users/${id}/unlock`),
   sendPasswordReset: (id) => http.post(`/admin/users/${id}/send-password-reset`),
+  userIdentities: (id) => http.get(`/admin/users/${id}/identities`),
+  unlinkIdentity: (id, provider) => http.del(`/admin/users/${id}/identities/${provider}`),
 
   auditLogs: (query) => http.get('/admin/audit-logs', query),
 

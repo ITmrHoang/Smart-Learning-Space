@@ -21,4 +21,8 @@ export const AUDIT_ACTION_LABELS = {
   'tag.merge': 'Gộp danh mục',
   'teacher_application.approve': 'Duyệt hồ sơ giáo viên',
   'teacher_application.reject': 'Từ chối hồ sơ giáo viên',
+  'identity.signup': 'Tạo tài khoản bằng SSO',
+  'identity.link': 'Liên kết Google / Microsoft',
+  'identity.unlink': 'Gỡ liên kết Google / Microsoft',
+  'identity.claim_unverified': 'Chủ email giành lại tài khoản chưa xác minh',
 };

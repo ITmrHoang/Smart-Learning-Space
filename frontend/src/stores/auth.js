@@ -9,12 +9,15 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(null);
   /** Đã thử khôi phục phiên lúc mở trang xong chưa */
   const ready = ref(false);
+  /** Mã lỗi khi phiên bị đăng xuất ngoài ý muốn (ví dụ `SESSION_LIMIT`), trang đăng nhập dùng để báo lý do. */
+  const endedReason = ref('');
 
   const isLoggedIn = computed(() => user.value !== null);
   const permissions = computed(() => user.value?.permissions ?? []);
   const can = (permission) => permissions.value.includes(permission);
 
   function applySession(session) {
+    endedReason.value = '';
     setAccessToken(session.accessToken);
     user.value = session.user;
   }
@@ -29,14 +32,18 @@ export const useAuthStore = defineStore('auth', () => {
     session: (session) => {
       user.value = session.user;
     },
-    expired: () => clear(),
+    expired: (e) => {
+      endedReason.value = e?.code || '';
+      clear();
+    },
   });
 
   /** Mở trang: dùng cookie refresh (nếu có) để khôi phục phiên đăng nhập. */
   async function restore() {
     try {
       applySession(await refreshSession());
-    } catch {
+    } catch (e) {
+      endedReason.value = e?.code || '';
       clear();
     } finally {
       ready.value = true;
@@ -71,5 +78,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = await authApi.me();
   }
 
-  return { user, ready, isLoggedIn, permissions, can, applySession, clear, restore, login, verifyEmail, logout, logoutAll, reloadMe };
+  return { user, ready, endedReason, isLoggedIn, permissions, can, applySession, clear, restore, login, verifyEmail, logout, logoutAll, reloadMe };
 });

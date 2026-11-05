@@ -68,6 +68,13 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct SetPasswordRequest {
+    #[validate(custom(function = "validate_password"))]
+    pub new_password: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterResponse {
@@ -82,13 +89,16 @@ pub struct RegisterResponse {
 pub struct MeResponse {
     #[serde(flatten)]
     pub user: UserResponse,
+    /// `false` với tài khoản tạo từ SSO chưa đặt mật khẩu.
+    pub has_password: bool,
     pub permissions: Vec<Permission>,
 }
 
 impl From<User> for MeResponse {
     fn from(u: User) -> Self {
         let permissions = permissions_for(u.role).to_vec();
-        Self { user: u.into(), permissions }
+        let has_password = u.password_hash.is_some();
+        Self { user: u.into(), has_password, permissions }
     }
 }
 

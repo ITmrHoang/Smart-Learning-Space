@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgExecutor;
 use uuid::Uuid;
 
-use super::model::{LinkRequest, UserIdentity};
+use super::model::{LinkRequest, LoginState, UserIdentity};
 
 macro_rules! identity_cols {
     () => {
@@ -145,5 +145,50 @@ pub async fn delete_link_request<'e, E: PgExecutor<'e>>(db: E, token_hash: &str)
 /// Dọn các yêu cầu đã hết hạn (gọi mỗi lần tạo yêu cầu mới, bảng luôn nhỏ).
 pub async fn delete_expired_link_requests<'e, E: PgExecutor<'e>>(db: E) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM sso_link_requests WHERE expires_at < now()").execute(db).await?;
+    Ok(())
+}
+
+// ---------- Lượt đăng nhập SSO đang dở ----------
+
+pub struct NewLoginState<'a> {
+    pub state_hash: &'a str,
+    pub provider: &'a str,
+    pub nonce: &'a str,
+    pub code_verifier: &'a str,
+    pub link_user_id: Option<Uuid>,
+    pub next_path: Option<&'a str>,
+    pub expires_at: DateTime<Utc>,
+}
+
+pub async fn insert_login_state<'e, E: PgExecutor<'e>>(db: E, s: &NewLoginState<'_>) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO sso_login_states (state_hash, provider, nonce, code_verifier, link_user_id, next_path, expires_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(s.state_hash)
+    .bind(s.provider)
+    .bind(s.nonce)
+    .bind(s.code_verifier)
+    .bind(s.link_user_id)
+    .bind(s.next_path)
+    .bind(s.expires_at)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Lấy và xóa luôn (dùng một lần): hai callback cùng `state` thì chỉ một callback nhận được.
+pub async fn take_login_state<'e, E: PgExecutor<'e>>(db: E, state_hash: &str) -> sqlx::Result<Option<LoginState>> {
+    sqlx::query_as::<_, LoginState>(
+        "DELETE FROM sso_login_states WHERE state_hash = $1 \
+         RETURNING provider, nonce, code_verifier, link_user_id, next_path, expires_at",
+    )
+    .bind(state_hash)
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn delete_expired_login_states<'e, E: PgExecutor<'e>>(db: E) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM sso_login_states WHERE expires_at < now()").execute(db).await?;
     Ok(())
 }

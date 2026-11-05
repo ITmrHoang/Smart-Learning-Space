@@ -32,6 +32,7 @@
       required
     />
     <hui-button type="submit" block :loading="loading">Đăng ký</hui-button>
+    <SsoButtons action="Đăng ký" />
 
     <div class="auth-links">
       <RouterLink to="/dang-nhap">Đã có tài khoản? Đăng nhập</RouterLink>
@@ -44,6 +45,7 @@ import { reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { authApi } from '../../api';
+import SsoButtons from '../../components/SsoButtons.vue';
 import { useSubmit } from '../../utils/form';
 
 const router = useRouter();

@@ -5,17 +5,14 @@
 
 | Module | Nội dung | Trạng thái |
 |---|---|---|
-| Module | Nội dung | Trạng thái |
-|---|---|---|
 | **M0** | Khung dự án: Cargo workspace (core / api / worker), Docker Compose dev, cấu hình, lỗi thống nhất, middleware nền, health check, migrations; khung Vue 3 + H-UI | ✅ Xong (2026-11-05) |
 | **M1** | Đăng ký, xác minh email bằng OTP, đăng nhập, phiên (access token + refresh token xoay vòng), đăng xuất, quên / đổi mật khẩu, giới hạn tần suất | ✅ Xong |
 | **M2** | Phân quyền: vai trò → quyền, middleware kiểm tra quyền, `/api/auth/me` trả quyền, menu và route theo quyền ở frontend | ✅ Xong |
 | **M3** | Admin quản lý user: danh sách (tìm, lọc, phân trang), tạo, sửa, đổi vai trò, khóa / mở khóa, gửi đặt lại mật khẩu, nhật ký thao tác | ✅ Xong |
 | **M4** | Master data: môn học, lớp (Lớp 1–12 + lớp riêng), danh mục (nhãn trong môn), mức độ câu hỏi; giáo viên tự thêm, admin gộp / đưa lên danh sách chung | ✅ Xong |
 | **M5** | Đăng ký làm giáo viên (chọn môn, lớp) và admin duyệt | ✅ Xong |
-
 | **M6.1** | SSO phần 1: bảng liên kết, chính sách đăng nhập / tạo / liên kết tài khoản (chính sách đã chốt 2026-11-05), xác nhận bằng mật khẩu hoặc OTP, tự gỡ / admin gỡ liên kết | ✅ Xong (2026-11-05) |
-| **M6.2** | SSO phần 2: luồng OIDC thật với Google / Microsoft, nút đăng nhập + trang liên kết ở giao diện, giới hạn số thiết bị | Chờ (làm tiếp) |
+| **M6.2** | SSO phần 2: luồng OIDC thật với Google / Microsoft, nút đăng nhập + trang liên kết ở giao diện, giới hạn số thiết bị, đặt mật khẩu lần đầu | ✅ Xong (2026-11-05) — chờ bạn tạo ứng dụng OAuth thật để thử với Google / Microsoft |
 
 Sau M6: G2 (thư viện bài, lớp học + lộ trình) theo `analyst.md` mục 7.
 
@@ -45,22 +42,56 @@ Hàm `sso::service::complete_login(ctx, ProviderIdentity, client)` nhận danh t
 | 9 | Tự gỡ liên kết | Tài khoản không mật khẩu → `LAST_LOGIN_METHOD`; có mật khẩu → gỡ được, thiết bị khác bị đăng xuất |
 | 10 | Admin xem / gỡ liên kết | Giáo viên 403; admin gỡ → mọi phiên bị thu hồi; nhật ký `identity.unlink` / `identity.link` |
 
-**M6.2 (làm tiếp):**
-1. Cấu hình `SSO_GOOGLE_CLIENT_ID/SECRET`, `SSO_MICROSOFT_CLIENT_ID/SECRET/TENANT`, `SSO_REDIRECT_BASE`. **Bạn cần tạo ứng dụng OAuth** ở Google Cloud Console và Microsoft Entra (Azure) để có client id / secret; dev dùng redirect `http://127.0.0.1:5173/api/auth/sso/{provider}/callback`.
-2. `GET /api/auth/sso/{provider}/start`: tạo `state` + `nonce` + PKCE, lưu ở Valkey 10 phút, chuyển hướng tới nhà cung cấp.
-3. `GET /api/auth/sso/{provider}/callback`: kiểm tra `state`, đổi code lấy token, kiểm tra id_token (chữ ký qua JWKS, `iss`, `aud`, `exp`, `nonce`) → `complete_login` → đặt cookie refresh rồi chuyển về giao diện (`/sso/xong`), hoặc về `/sso/lien-ket?token=…` khi cần xác nhận.
-4. Giao diện: nút "Đăng nhập với Google / Microsoft", trang xác nhận liên kết (mật khẩu hoặc mã OTP), mục "Tài khoản liên kết" trong Hồ sơ, xem / gỡ liên kết trong trang admin.
-5. Giới hạn thiết bị: tối đa N chuỗi phiên đang mở (mặc định 2); đăng nhập thiết bị mới thì phiên cũ nhất bị thu hồi.
-6. Tài khoản tạo từ SSO có thể đặt mật khẩu lần đầu (hiện dùng được "Quên mật khẩu").
+**M6.2 (đã xong 2026-11-05)** — `core/src/modules/sso/oidc.rs` (client OIDC), `sso/flow.rs` (start / callback), migration `20261106000001_sso_flow_session_limit.sql` (`sso_login_states`, cột `refresh_tokens.revoked_reason`). Cấu hình: `SSO_GOOGLE_CLIENT_ID/SECRET`, `SSO_MICROSOFT_CLIENT_ID/SECRET/TENANT`, `SSO_REDIRECT_BASE`, `MAX_SESSIONS_PER_USER` (mẫu ở `backend/.env.example`, cách tạo ứng dụng OAuth ở `README.md`).
 
-### Kết quả kiểm tra G1 (2026-11-05)
+| API | Mô tả |
+|---|---|
+| `GET /api/auth/sso/providers` | Nhà cung cấp đã cấu hình → frontend chỉ hiện nút của các nhà cung cấp này |
+| `POST /api/auth/sso/{provider}/start` | Body `{ mode: "login" \| "link", next }` → `{ authorizeUrl }` + cookie `sls_sso_state` (HttpOnly, SameSite=Lax, 10 phút). `link` cần đăng nhập |
+| `GET /api/auth/sso/{provider}/callback` | Kiểm tra `state` (khớp cookie, dùng một lần), đổi code (kèm PKCE) lấy id_token, kiểm tra chữ ký JWKS / `iss` / `aud` / `exp` / `nonce`, rồi chuyển hướng 303 về: `/sso/xong?next=…&new=1` · `/sso/lien-ket#token=…` · `/ho-so?ssoLinked=…` · `/dang-nhap?ssoError=MÃ` (hoặc `/ho-so?ssoError=…` khi đang liên kết) |
+| `POST /api/auth/set-password` | Tài khoản tạo từ SSO đặt mật khẩu lần đầu (đã có mật khẩu → 409 `PASSWORD_ALREADY_SET`); thiết bị khác bị đăng xuất. `/api/auth/me` có thêm `hasPassword` |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định | Lý do |
+|---|---|---|
+| Thư viện OIDC | Tự viết phần nhỏ cần dùng bằng `reqwest` + `jsonwebtoken` thay vì crate `openidconnect` (analyst.md) | Chỉ cần Authorization Code + PKCE với 2 nhà cung cấp; ít phụ thuộc, dễ đọc khi học Rust. Cấu hình + JWKS giữ trong bộ nhớ 1 giờ, gặp `kid` lạ thì tải lại (tối đa 1 lần / phút) |
+| Lưu `state` | Bảng `sso_login_states` (PostgreSQL), không dùng Valkey như dự kiến | Callback lấy-và-xóa trong một câu `DELETE … RETURNING` (chắc chắn dùng một lần); test chạy được không cần Valkey |
+| Chống ép đăng nhập (login CSRF) | `state` vừa lưu server vừa nằm trong cookie của trình duyệt; callback phải khớp cả hai | Link callback bị gửi sang trình duyệt khác thì không dùng được |
+| Token liên kết | Đặt ở phần `#` của URL, trang `/sso/lien-ket` đọc xong xóa khỏi thanh địa chỉ | Phần `#` không gửi lên server và không lộ qua `Referer` |
+| Email Microsoft | Tin email khi: có `email_verified`, hoặc tài khoản cá nhân (tenant `9188040d-…`), hoặc có claim `xms_edov` = true. Còn lại → `SSO_EMAIL_UNVERIFIED` | Email tài khoản trường / công ty do quản trị tenant tự đặt, không được Microsoft xác minh (lỗ hổng kiểu "nOAuth"). Cần bật optional claim `xms_edov` trong Entra |
+| Giới hạn thiết bị | Mặc định 2, áp dụng mọi vai trò. Đăng nhập mới (mật khẩu, OTP, SSO) giữ lại 2 phiên **dùng gần nhất**; xoay vòng refresh token không tính là thiết bị mới. Thiết bị bị đăng xuất nhận `401 SESSION_LIMIT` khi refresh, trang đăng nhập báo lý do | Đúng mục đích chống chia sẻ tài khoản; đăng xuất thiết bị lâu không dùng ít phiền hơn đăng xuất thiết bị đăng nhập sớm nhất |
+| Liên kết khi đã đăng nhập | Không cần nhập lại mật khẩu; email Google / Microsoft được phép khác email tài khoản | Người dùng đã chứng minh sở hữu tài khoản bằng phiên đang dùng |
+
+| # | Ca test M6.2 (`api/tests/sso_oidc.rs` 9 test, `sessions.rs` 4 test — nhà cung cấp OIDC giả `tests/common/oidc.rs`) | Kết quả |
+|---|---|---|
+| 1 | Danh sách nhà cung cấp; nhà cung cấp chưa bật / không tồn tại | `[]` khi chưa cấu hình; 404 |
+| 2 | URL đăng nhập | Có `client_id`, `redirect_uri`, `state` = cookie, `nonce`, PKCE S256; cookie HttpOnly + SameSite=Lax + Path `/api/auth/sso` + 10 phút |
+| 3 | Email mới | Tạo học sinh `hasPassword=false`, chuyển `/sso/xong?next=%2Flop-hoc&new=1`; lần sau đăng nhập luôn; `next=//evil.com` bị bỏ |
+| 4 | `state` | Thiếu cookie / cookie lượt khác / dùng lại / dùng cho nhà cung cấp khác → `SSO_STATE_INVALID` |
+| 5 | Bấm Hủy ở nhà cung cấp | `SSO_CANCELLED` |
+| 6 | id_token sai `nonce` / `aud` / `iss` / hết hạn / sửa nội dung (chữ ký sai) | `SSO_FAILED`, không tạo tài khoản; email chưa xác minh → `SSO_EMAIL_UNVERIFIED` |
+| 7 | Trùng email tài khoản đã có | `/sso/lien-ket#token…&email=l***@…&password=1` → xác nhận mật khẩu → lần sau vào thẳng tài khoản |
+| 8 | Liên kết khi đã đăng nhập | Không token → 401; thành công `/ho-so?ssoLinked=google` (không tạo phiên mới); liên kết lại cùng danh tính vẫn OK; Google thứ hai → `SSO_PROVIDER_ALREADY_LINKED`; danh tính của người khác → `SSO_ALREADY_LINKED`; nhật ký `identity.link` |
+| 9 | Microsoft | Tài khoản cá nhân → tạo được; tenant trường không có `xms_edov` → `SSO_EMAIL_UNVERIFIED`, có → tạo được; `iss` khác tenant `tid` → `SSO_FAILED` |
+| 10 | Giới hạn 2 thiết bị | Thiết bị thứ 3 đăng xuất thiết bị lâu không dùng nhất (`SESSION_LIMIT`, cookie bị xóa); 2 thiết bị còn lại dùng tiếp; `MAX_SESSIONS_PER_USER=0` → không giới hạn |
+| 11 | Đặt mật khẩu lần đầu | Mật khẩu yếu 422; đặt xong đăng nhập bằng mật khẩu được, `hasPassword=true`; đặt lần 2 / tài khoản đã có mật khẩu → 409; không đăng nhập → 401 |
+| U | `pkce_challenge` theo ví dụ RFC 7636; đọc `email_verified` dạng bool / chuỗi; `sanitize_next`; cấu hình SSO + giới hạn thiết bị | Unit (`sls-core`) |
+
+**Giao diện:** nút "Đăng nhập / Đăng ký với Google · Microsoft" (`components/SsoButtons.vue`), `/sso/xong`, `/sso/lien-ket` (mật khẩu hoặc mã qua email), Hồ sơ: "Đặt mật khẩu" cho tài khoản SSO + "Tài khoản liên kết" (liên kết / gỡ), admin Người dùng → "Liên kết SSO" (xem / gỡ). Trang đăng nhập báo lỗi `ssoError` và lý do bị đăng xuất (`SESSION_LIMIT`). Unit test `utils/sso.test.js` (4).
+
+**Đã thử trên trình duyệt** (API trỏ tới một nhà cung cấp OIDC giả chạy ở máy): đăng ký bằng Google → Hồ sơ có lời chào + form đặt mật khẩu → liên kết thêm Microsoft → đặt mật khẩu → đăng xuất → Google với email của admin → trang xác nhận (token đã bị xóa khỏi URL) → nhận mã qua Mailpit → vào tài khoản admin và quay đúng trang `redirect` ban đầu → admin xem / gỡ liên kết của user → đăng nhập admin ở 2 nơi khác → trình duyệt bị đăng xuất kèm thông báo → bấm Hủy ở nhà cung cấp → thông báo "Bạn đã hủy đăng nhập".
+
+**Còn lại của M6:** thử với Google / Microsoft thật (cần bạn tạo ứng dụng OAuth, xem `README.md`). Chưa làm (analyst.md mục 3, chưa xếp lịch): admin khóa SSO của một tài khoản; "chỉ cho đăng nhập bằng SSO" với giáo viên.
+
+### Kết quả kiểm tra G1 (cập nhật sau M6.2, 2026-11-05)
 
 | Hạng mục | Kết quả |
 |---|---|
-| Backend unit test (`sls-core`) | 25 / 25 đạt |
-| Backend integration test (`sls-api/tests`, PostgreSQL thật, mỗi test một database) | 40 / 40 đạt — health 3, auth 18, rbac 3, admin_users 7, catalog 6, teachers 3 |
+| Backend unit test (`sls-core`) | 31 / 31 đạt |
+| Backend integration test (`sls-api/tests`, PostgreSQL thật, mỗi test một database) | 63 / 63 đạt — health 3, auth 18, rbac 3, admin_users 7, catalog 6, teachers 3, sso 10, sso_oidc 9, sessions 4 |
 | `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
-| Frontend unit test (Vitest) | 21 / 21 đạt — API client 9, menu + guard 7, danh sách phân trang 3, Enter gửi form 2 |
+| Frontend unit test (Vitest) | 23 / 23 đạt — API client 9, menu + guard 7, danh sách phân trang 3, SSO 4 |
 | `npm run build` | Đạt |
 | Chạy thật với Docker (api + worker + Mailpit) | Đăng ký → email OTP qua RabbitMQ → Mailpit → xác minh → đăng nhập; admin tạo user, duyệt hồ sơ giáo viên, nhật ký ghi đúng |
 | Kiểm tra trên trình duyệt | Đăng nhập admin, menu theo quyền, danh sách / thêm user qua modal, mọi trang admin tải dữ liệu; học sinh: đăng ký → OTP → bị chặn khỏi trang admin (403) → gửi hồ sơ giáo viên |

@@ -78,3 +78,15 @@ pub struct LinkRequest {
     pub code_sent_at: Option<DateTime<Utc>>,
     pub expires_at: DateTime<Utc>,
 }
+
+/// Lượt đăng nhập SSO đang dở (bảng `sso_login_states`).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LoginState {
+    pub provider: String,
+    pub nonce: String,
+    pub code_verifier: String,
+    /// Có giá trị khi người dùng đã đăng nhập và đang liên kết thêm tài khoản Google / Microsoft.
+    pub link_user_id: Option<Uuid>,
+    pub next_path: Option<String>,
+    pub expires_at: DateTime<Utc>,
+}

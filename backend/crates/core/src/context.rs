@@ -6,7 +6,9 @@ use std::sync::Arc;
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
 
-use crate::{config::Config, jobs::JobQueue, rate_limit::RateLimiter, security::jwt::JwtKeys};
+use crate::{
+    config::Config, jobs::JobQueue, modules::sso::oidc::SsoClients, rate_limit::RateLimiter, security::jwt::JwtKeys,
+};
 
 #[derive(Clone)]
 pub struct AppContext {
@@ -17,6 +19,8 @@ pub struct AppContext {
     pub valkey: Option<ConnectionManager>,
     pub jwt: Arc<JwtKeys>,
     pub config: Arc<Config>,
+    /// Client OIDC của các nhà cung cấp SSO đã cấu hình.
+    pub sso: Arc<SsoClients>,
 }
 
 impl AppContext {
@@ -28,7 +32,8 @@ impl AppContext {
         valkey: Option<ConnectionManager>,
     ) -> Self {
         let jwt = Arc::new(JwtKeys::new(config.jwt_secret.as_bytes(), config.access_ttl));
-        Self { db, jobs, limiter, valkey, jwt, config: Arc::new(config) }
+        let sso = Arc::new(SsoClients::from_config(&config));
+        Self { db, jobs, limiter, valkey, jwt, sso, config: Arc::new(config) }
     }
 
     /// Kiểm tra các phụ thuộc (dùng cho `GET /api/health`).

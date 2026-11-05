@@ -115,6 +115,17 @@ pub async fn update_password<'e, E: PgExecutor<'e>>(db: E, id: Uuid, hash: &str)
 }
 
 /// Xóa mật khẩu (tài khoản chỉ còn đăng nhập được bằng SSO hoặc đặt lại mật khẩu qua email).
+/// Đặt mật khẩu khi tài khoản chưa có mật khẩu. Trả `false` nếu đã có.
+pub async fn set_password_if_empty<'e, E: PgExecutor<'e>>(db: E, id: Uuid, hash: &str) -> sqlx::Result<bool> {
+    let res =
+        sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1 AND password_hash IS NULL")
+            .bind(id)
+            .bind(hash)
+            .execute(db)
+            .await?;
+    Ok(res.rows_affected() == 1)
+}
+
 pub async fn clear_password<'e, E: PgExecutor<'e>>(db: E, id: Uuid) -> sqlx::Result<()> {
     sqlx::query("UPDATE users SET password_hash = NULL, updated_at = now() WHERE id = $1").bind(id).execute(db).await?;
     Ok(())

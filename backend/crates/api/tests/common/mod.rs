@@ -2,6 +2,8 @@
 //! hàng đợi bộ nhớ (đọc lại email), không có Valkey.
 #![allow(dead_code)]
 
+pub mod oidc;
+
 use std::sync::LazyLock;
 
 use axum::{
@@ -50,12 +52,28 @@ impl Res {
     }
 
     pub fn set_cookie_header(&self) -> Option<String> {
+        self.set_cookie("sls_refresh")
+    }
+
+    /// Header `Set-Cookie` đầy đủ của cookie `name`.
+    pub fn set_cookie(&self, name: &str) -> Option<String> {
+        let prefix = format!("{name}=");
         self.headers
             .get_all(header::SET_COOKIE)
             .iter()
             .filter_map(|v| v.to_str().ok())
-            .find(|s| s.starts_with("sls_refresh="))
+            .find(|s| s.starts_with(&prefix))
             .map(str::to_string)
+    }
+
+    /// Giá trị cookie `name` trong `Set-Cookie`.
+    pub fn cookie(&self, name: &str) -> Option<String> {
+        self.set_cookie(name).map(|s| s[name.len() + 1..].split(';').next().unwrap_or("").to_string())
+    }
+
+    /// Header `Location` (chuyển hướng).
+    pub fn location(&self) -> String {
+        self.headers.get(header::LOCATION).and_then(|v| v.to_str().ok()).unwrap_or("").to_string()
     }
 
     pub fn token(&self) -> String {
@@ -74,8 +92,21 @@ impl TestApp {
     }
 
     pub fn with_limiter(pool: PgPool, limiter: RateLimiter) -> Self {
-        let ctx = AppContext::new(Config::for_tests("postgres://test"), pool, JobQueue::memory(), limiter, None);
+        Self::with_config(pool, Config::for_tests("postgres://test"), limiter)
+    }
+
+    pub fn with_config(pool: PgPool, config: Config, limiter: RateLimiter) -> Self {
+        let ctx = AppContext::new(config, pool, JobQueue::memory(), limiter, None);
         Self { router: build_router(ctx.clone()), ctx }
+    }
+
+    /// App có bật Google + Microsoft, trỏ tới nhà cung cấp OIDC giả.
+    pub async fn with_sso(pool: PgPool) -> (Self, oidc::FakeOidc) {
+        let fake = oidc::FakeOidc::start().await;
+        let mut config = Config::for_tests("postgres://test");
+        config.sso_google = Some(fake.google_config());
+        config.sso_microsoft = Some(fake.microsoft_config());
+        (Self::with_config(pool, config, RateLimiter::Disabled), fake)
     }
 
     pub async fn send(
@@ -86,12 +117,25 @@ impl TestApp {
         token: Option<&str>,
         refresh_cookie: Option<&str>,
     ) -> Res {
+        let cookie = refresh_cookie.map(|c| format!("sls_refresh={c}"));
+        self.request(method, path, body, token, cookie.as_deref()).await
+    }
+
+    /// Gửi request với header `Cookie` tùy ý (ví dụ `"sls_sso_state=abc"`).
+    pub async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        token: Option<&str>,
+        cookie: Option<&str>,
+    ) -> Res {
         let mut builder = Request::builder().method(method).uri(path).header(header::USER_AGENT, "sls-test");
         if let Some(t) = token {
             builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
         }
-        if let Some(c) = refresh_cookie {
-            builder = builder.header(header::COOKIE, format!("sls_refresh={c}"));
+        if let Some(c) = cookie {
+            builder = builder.header(header::COOKIE, c);
         }
         let req = match body {
             Some(v) => builder.header(header::CONTENT_TYPE, "application/json").body(Body::from(v.to_string())),

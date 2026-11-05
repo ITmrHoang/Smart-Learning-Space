@@ -90,6 +90,15 @@ export const routes = [
     component: AuthLayout,
     children: [{ path: '', name: 'reset-password', component: () => import('../pages/auth/ResetPasswordPage.vue') }],
   },
+  {
+    // Google / Microsoft chuyển về sau khi đăng nhập (backend `/api/auth/sso/{provider}/callback`).
+    path: '/sso',
+    component: AuthLayout,
+    children: [
+      { path: 'xong', name: 'sso-done', component: () => import('../pages/auth/SsoDonePage.vue') },
+      { path: 'lien-ket', name: 'sso-link', component: () => import('../pages/auth/SsoLinkPage.vue') },
+    ],
+  },
   { path: '/trang-thai', name: 'status', component: () => import('../pages/StatusPage.vue') },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../pages/NotFoundPage.vue') },
 ];

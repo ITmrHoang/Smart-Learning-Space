@@ -76,6 +76,10 @@ pub async fn set_password<'e, E: PgExecutor<'e>>(db: E, id: Uuid, hash: &str) ->
     Ok(repository::update_password(db, id, hash).await?)
 }
 
+pub async fn set_password_if_empty<'e, E: PgExecutor<'e>>(db: E, id: Uuid, hash: &str) -> AppResult<bool> {
+    Ok(repository::set_password_if_empty(db, id, hash).await?)
+}
+
 pub async fn clear_password<'e, E: PgExecutor<'e>>(db: E, id: Uuid) -> AppResult<()> {
     Ok(repository::clear_password(db, id).await?)
 }

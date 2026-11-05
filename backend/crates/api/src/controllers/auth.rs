@@ -16,7 +16,7 @@ use sls_core::{
     modules::auth::{
         dto::{
             AuthResponse, ChangePasswordRequest, EmailRequest, LoginRequest, MeResponse, RegisterRequest,
-            RegisterResponse, ResetPasswordRequest, VerifyEmailRequest,
+            RegisterResponse, ResetPasswordRequest, SetPasswordRequest, VerifyEmailRequest,
         },
         service::{self as auth, Session},
     },
@@ -40,10 +40,11 @@ pub fn routes() -> Router<AppContext> {
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
         .route("/change-password", post(change_password))
+        .route("/set-password", post(set_password))
         .route("/me", get(me))
 }
 
-fn refresh_cookie(ctx: &AppContext, token: String) -> Cookie<'static> {
+pub(crate) fn refresh_cookie(ctx: &AppContext, token: String) -> Cookie<'static> {
     Cookie::build((REFRESH_COOKIE, token))
         .http_only(true)
         .same_site(SameSite::Strict)
@@ -140,6 +141,16 @@ async fn change_password(
     ValidatedJson(req): ValidatedJson<ChangePasswordRequest>,
 ) -> AppResult<StatusCode> {
     auth::change_password(&ctx, &actor, req).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Tài khoản tạo từ SSO đặt mật khẩu lần đầu.
+async fn set_password(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    ValidatedJson(req): ValidatedJson<SetPasswordRequest>,
+) -> AppResult<StatusCode> {
+    auth::set_password(&ctx, &actor, req).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

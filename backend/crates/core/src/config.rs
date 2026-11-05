@@ -19,6 +19,22 @@ pub struct Config {
     /// `true` khi đứng sau Caddy: lấy IP người dùng từ `X-Forwarded-For`.
     pub trust_proxy: bool,
     pub bootstrap_admin: Option<BootstrapAdmin>,
+    /// Đăng nhập Google; `None` khi chưa cấu hình client id / secret (nút đăng nhập bị ẩn).
+    pub sso_google: Option<SsoProviderConfig>,
+    pub sso_microsoft: Option<SsoProviderConfig>,
+    /// Gốc của redirect URI gửi cho nhà cung cấp: `{sso_redirect_base}/api/auth/sso/{provider}/callback`.
+    pub sso_redirect_base: String,
+    /// Số thiết bị đăng nhập cùng lúc tối đa của một tài khoản; `0` = không giới hạn.
+    pub max_sessions: u32,
+}
+
+/// Ứng dụng OAuth đăng ký ở nhà cung cấp (Google Cloud Console / Microsoft Entra).
+#[derive(Clone)]
+pub struct SsoProviderConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    /// Issuer OIDC; cấu hình đọc từ `{issuer}/.well-known/openid-configuration`.
+    pub issuer: String,
 }
 
 /// Tài khoản admin đầu tiên, chỉ được tạo khi hệ thống chưa có admin nào.
@@ -42,6 +58,9 @@ impl fmt::Debug for Config {
             .field("cookie_secure", &self.cookie_secure)
             .field("trust_proxy", &self.trust_proxy)
             .field("bootstrap_admin", &self.bootstrap_admin.as_ref().map(|a| &a.username))
+            .field("sso_google", &self.sso_google.as_ref().map(|p| &p.issuer))
+            .field("sso_microsoft", &self.sso_microsoft.as_ref().map(|p| &p.issuer))
+            .field("max_sessions", &self.max_sessions)
             .finish_non_exhaustive()
     }
 }
@@ -103,6 +122,33 @@ impl Config {
             _ => None,
         };
 
+        let sso = |prefix: &'static str, default_issuer: String| -> Result<Option<SsoProviderConfig>, ConfigError> {
+            let key = |suffix: &str| format!("SSO_{prefix}_{suffix}");
+            match (get(&key("CLIENT_ID")), get(&key("CLIENT_SECRET"))) {
+                (Some(client_id), Some(client_secret)) => Ok(Some(SsoProviderConfig {
+                    client_id,
+                    client_secret,
+                    issuer: get(&key("ISSUER")).unwrap_or(default_issuer).trim_end_matches('/').to_string(),
+                })),
+                (None, None) => Ok(None),
+                _ => Err(ConfigError::Invalid {
+                    name: if prefix == "GOOGLE" { "SSO_GOOGLE_CLIENT_ID" } else { "SSO_MICROSOFT_CLIENT_ID" },
+                    reason: "cần khai báo cả CLIENT_ID và CLIENT_SECRET".into(),
+                }),
+            }
+        };
+        let microsoft_tenant = get("SSO_MICROSOFT_TENANT").unwrap_or_else(|| "common".into());
+        let sso_google = sso("GOOGLE", "https://accounts.google.com".into())?;
+        let sso_microsoft = sso("MICROSOFT", format!("https://login.microsoftonline.com/{microsoft_tenant}/v2.0"))?;
+        let app_base_url =
+            get("APP_BASE_URL").unwrap_or_else(|| "http://127.0.0.1:5173".into()).trim_end_matches('/').to_string();
+        let max_sessions = match get("MAX_SESSIONS_PER_USER") {
+            None => 2,
+            Some(v) => v
+                .parse::<u32>()
+                .map_err(|e| ConfigError::Invalid { name: "MAX_SESSIONS_PER_USER", reason: e.to_string() })?,
+        };
+
         Ok(Self {
             bind_addr: get("BIND_ADDR").unwrap_or_else(|| "127.0.0.1:8080".into()),
             database_url: required("DATABASE_URL")?,
@@ -111,16 +157,19 @@ impl Config {
             jwt_secret,
             access_ttl: secs("ACCESS_TOKEN_TTL_SECS", 15 * 60)?,
             refresh_ttl: secs("REFRESH_TOKEN_TTL_SECS", 30 * 24 * 3600)?,
-            app_base_url: get("APP_BASE_URL")
-                .unwrap_or_else(|| "http://127.0.0.1:5173".into())
-                .trim_end_matches('/')
-                .to_string(),
+            sso_redirect_base: get("SSO_REDIRECT_BASE")
+                .map(|v| v.trim_end_matches('/').to_string())
+                .unwrap_or_else(|| app_base_url.clone()),
+            app_base_url,
             cors_origins: get("CORS_ORIGINS")
                 .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
                 .unwrap_or_default(),
             cookie_secure: flag("COOKIE_SECURE", false),
             trust_proxy: flag("TRUST_PROXY", false),
             bootstrap_admin,
+            sso_google,
+            sso_microsoft,
+            max_sessions,
         })
     }
 
@@ -169,6 +218,34 @@ mod tests {
         assert_eq!(cfg.app_base_url, "http://app.test");
         assert!(cfg.bootstrap_admin.is_none());
         assert!(!cfg.cookie_secure);
+    }
+
+    #[test]
+    fn cau_hinh_sso_va_gioi_han_thiet_bi() {
+        let base = [("DATABASE_URL", "postgres://x"), ("JWT_SECRET", "0123456789abcdef0123456789abcdef")];
+        let cfg = Config::from_lookup(lookup(&base)).unwrap();
+        assert!(cfg.sso_google.is_none() && cfg.sso_microsoft.is_none());
+        assert_eq!(cfg.sso_redirect_base, "http://127.0.0.1:5173");
+        assert_eq!(cfg.max_sessions, 2);
+
+        let mut pairs = base.to_vec();
+        pairs.extend([
+            ("SSO_GOOGLE_CLIENT_ID", "gid"),
+            ("SSO_GOOGLE_CLIENT_SECRET", "gsecret"),
+            ("SSO_MICROSOFT_CLIENT_ID", "mid"),
+            ("SSO_MICROSOFT_CLIENT_SECRET", "msecret"),
+            ("SSO_MICROSOFT_TENANT", "organizations"),
+            ("MAX_SESSIONS_PER_USER", "0"),
+        ]);
+        let cfg = Config::from_lookup(lookup(&pairs)).unwrap();
+        assert_eq!(cfg.sso_google.unwrap().issuer, "https://accounts.google.com");
+        assert_eq!(cfg.sso_microsoft.unwrap().issuer, "https://login.microsoftonline.com/organizations/v2.0");
+        assert_eq!(cfg.max_sessions, 0);
+
+        let mut pairs = base.to_vec();
+        pairs.push(("SSO_GOOGLE_CLIENT_ID", "gid"));
+        let err = Config::from_lookup(lookup(&pairs)).unwrap_err();
+        assert!(matches!(err, ConfigError::Invalid { name: "SSO_GOOGLE_CLIENT_ID", .. }));
     }
 
     #[test]

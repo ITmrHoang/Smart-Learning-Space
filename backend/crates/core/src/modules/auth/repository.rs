@@ -74,7 +74,8 @@ pub async fn find_refresh_by_hash<'e, E: PgExecutor<'e>>(
     token_hash: &str,
 ) -> sqlx::Result<Option<RefreshToken>> {
     sqlx::query_as::<_, RefreshToken>(
-        "SELECT id, user_id, family_id, expires_at, revoked_at, replaced_by FROM refresh_tokens WHERE token_hash = $1",
+        "SELECT id, user_id, family_id, expires_at, revoked_at, replaced_by, revoked_reason \
+         FROM refresh_tokens WHERE token_hash = $1",
     )
     .bind(token_hash)
     .fetch_optional(db)
@@ -124,6 +125,23 @@ pub async fn revoke_others_for_user<'e, E: PgExecutor<'e>>(
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// Giữ lại `keep` phiên dùng gần nhất của user, thu hồi các phiên còn lại (lý do `session_limit`).
+/// Mỗi phiên còn mở có đúng một refresh token chưa thu hồi, nên sắp theo token là sắp theo phiên.
+pub async fn revoke_beyond_limit<'e, E: PgExecutor<'e>>(db: E, user_id: Uuid, keep: i64) -> sqlx::Result<u64> {
+    let res = sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now(), revoked_reason = 'session_limit' \
+         WHERE user_id = $1 AND revoked_at IS NULL AND id IN ( \
+             SELECT id FROM refresh_tokens \
+             WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now() \
+             ORDER BY created_at DESC, id DESC OFFSET $2)",
+    )
+    .bind(user_id)
+    .bind(keep)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
 }
 
 pub async fn count_active_sessions<'e, E: PgExecutor<'e>>(db: E, user_id: Uuid) -> sqlx::Result<i64> {

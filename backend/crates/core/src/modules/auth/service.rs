@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::{
     dto::{
         AuthResponse, ChangePasswordRequest, EmailRequest, LoginRequest, MeResponse, RegisterRequest, RegisterResponse,
-        ResetPasswordRequest, VerifyEmailRequest,
+        ResetPasswordRequest, SetPasswordRequest, VerifyEmailRequest,
     },
     model::NewRefreshToken,
     repository,
@@ -37,6 +37,9 @@ const OTP_RESEND_COOLDOWN: TimeDelta = TimeDelta::seconds(60);
 const RESET_TTL: TimeDelta = TimeDelta::minutes(30);
 /// Hai tab cùng refresh một lúc: token vừa bị thay trong khoảng này thì không coi là bị đánh cắp.
 const REFRESH_RACE_GRACE: TimeDelta = TimeDelta::seconds(30);
+
+/// Giá trị `refresh_tokens.revoked_reason` khi phiên bị đăng xuất vì vượt số thiết bị.
+const SESSION_LIMIT_REASON: &str = "session_limit";
 
 const LOGIN_MAX_FAILS: u32 = 10;
 const LOGIN_WINDOW: Duration = Duration::from_secs(15 * 60);
@@ -164,7 +167,7 @@ pub async fn verify_email(ctx: &AppContext, req: VerifyEmailRequest, client: &Cl
     repository::delete_verification(&mut *tx, user.id).await?;
     users::touch_login(&mut *tx, user.id).await?;
     let user = users::find_by_id(&mut *tx, user.id).await?.ok_or_else(invalid_code)?;
-    let session = issue_session(ctx, &mut *tx, &user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+    let session = start_session(ctx, &mut tx, &user, client).await?;
     tx.commit().await?;
     Ok(session)
 }
@@ -221,8 +224,26 @@ pub async fn login(ctx: &AppContext, req: LoginRequest, client: &ClientInfo) -> 
 
     let mut tx = ctx.db.begin().await?;
     users::touch_login(&mut *tx, user.id).await?;
-    let session = issue_session(ctx, &mut *tx, &user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+    let session = start_session(ctx, &mut tx, &user, client).await?;
     tx.commit().await?;
+    Ok(session)
+}
+
+/// Đăng nhập trên một thiết bị mới: tạo chuỗi phiên mới, rồi giữ tối đa `MAX_SESSIONS_PER_USER` phiên —
+/// phiên lâu không dùng nhất bị đăng xuất (thiết bị đó nhận lỗi `SESSION_LIMIT` khi refresh).
+pub(crate) async fn start_session(
+    ctx: &AppContext,
+    conn: &mut sqlx::PgConnection,
+    user: &User,
+    client: &ClientInfo,
+) -> AppResult<Session> {
+    let session = issue_session(ctx, &mut *conn, user, Uuid::now_v7(), Uuid::now_v7(), client).await?;
+    if ctx.config.max_sessions > 0 {
+        let revoked = repository::revoke_beyond_limit(&mut *conn, user.id, i64::from(ctx.config.max_sessions)).await?;
+        if revoked > 0 {
+            tracing::info!(user_id = %user.id, revoked, "vượt số thiết bị, đăng xuất phiên cũ");
+        }
+    }
     Ok(session)
 }
 
@@ -271,6 +292,12 @@ pub async fn refresh(ctx: &AppContext, token: Option<&str>, client: &ClientInfo)
     let rt = repository::find_refresh_by_hash(&ctx.db, &sha256_hex(token)).await?.ok_or_else(invalid_refresh)?;
 
     if let Some(revoked_at) = rt.revoked_at {
+        if rt.revoked_reason.as_deref() == Some(SESSION_LIMIT_REASON) {
+            return Err(AppError::unauthorized(
+                "SESSION_LIMIT",
+                "Tài khoản vừa đăng nhập trên thiết bị khác nên thiết bị này đã bị đăng xuất.",
+            ));
+        }
         let recently_rotated = rt.replaced_by.is_some() && Utc::now() - revoked_at < REFRESH_RACE_GRACE;
         if !recently_rotated {
             // Token đã thu hồi mà vẫn được dùng → có thể bị đánh cắp: thu hồi cả chuỗi phiên.
@@ -403,6 +430,28 @@ pub async fn change_password(ctx: &AppContext, actor: &Actor, req: ChangePasswor
     let mut tx = ctx.db.begin().await?;
     users::set_password(&mut *tx, user.id, &new_hash).await?;
     repository::invalidate_password_resets(&mut *tx, user.id).await?;
+    repository::revoke_others_for_user(&mut *tx, user.id, actor.session_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Đặt mật khẩu lần đầu cho tài khoản tạo từ SSO (chưa có mật khẩu). Các thiết bị khác bị đăng xuất.
+pub async fn set_password(ctx: &AppContext, actor: &Actor, req: SetPasswordRequest) -> AppResult<()> {
+    let user = users::find_by_id(&ctx.db, actor.id)
+        .await?
+        .ok_or_else(|| AppError::unauthorized("UNAUTHENTICATED", "Bạn cần đăng nhập."))?;
+    if user.password_hash.is_some() {
+        return Err(AppError::conflict(
+            "PASSWORD_ALREADY_SET",
+            "Tài khoản đã có mật khẩu. Hãy dùng chức năng Đổi mật khẩu.",
+        ));
+    }
+    let new_hash = hash_password(req.new_password).await?;
+    let mut tx = ctx.db.begin().await?;
+    // Chỉ đặt khi vẫn chưa có mật khẩu (hai request song song thì một request thắng).
+    if !users::set_password_if_empty(&mut *tx, user.id, &new_hash).await? {
+        return Err(AppError::conflict("PASSWORD_ALREADY_SET", "Tài khoản đã có mật khẩu."));
+    }
     repository::revoke_others_for_user(&mut *tx, user.id, actor.session_id).await?;
     tx.commit().await?;
     Ok(())

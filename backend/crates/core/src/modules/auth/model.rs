@@ -18,6 +18,8 @@ pub struct RefreshToken {
     pub expires_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
     pub replaced_by: Option<Uuid>,
+    /// `session_limit`: bị đăng xuất vì tài khoản đăng nhập trên quá nhiều thiết bị.
+    pub revoked_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

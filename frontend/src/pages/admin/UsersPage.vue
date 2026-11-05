@@ -57,6 +57,7 @@
     </section>
 
     <UserFormModal v-model:open="formOpen" :user="editing" @saved="onSaved" />
+    <UserIdentitiesModal v-model:open="identitiesOpen" :user="identitiesUser" :canManage="canManage" />
     <ConfirmModal
       v-model:open="confirm.open"
       :title="confirm.title"
@@ -76,6 +77,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { adminApi } from '../../api';
 import ConfirmModal from '../../components/ConfirmModal.vue';
 import UserFormModal from '../../components/UserFormModal.vue';
+import UserIdentitiesModal from '../../components/UserIdentitiesModal.vue';
 import { useAuthStore } from '../../stores/auth';
 import { usePagedList } from '../../utils/list';
 import { P, ROLE_COLORS, ROLE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../../utils/permissions';
@@ -103,6 +105,7 @@ const columns = computed(() => [
           type: 'actions',
           actions: [
             { key: 'edit', label: 'Sửa' },
+            { key: 'identities', label: 'Liên kết SSO' },
             { key: 'reset', label: 'Gửi đặt lại MK', disabled: (r) => r.status === 'locked' },
             { key: 'unlock', label: 'Mở khóa', disabled: (r) => r.status !== 'locked' },
             { key: 'lock', label: 'Khóa', danger: true, disabled: (r) => r.status === 'locked' || r.id === auth.user?.id },
@@ -122,6 +125,9 @@ function onSaved() {
   message.success('Đã lưu người dùng.');
   list.load();
 }
+
+const identitiesOpen = ref(false);
+const identitiesUser = ref(null);
 
 const confirm = reactive({ open: false, title: '', message: '', okText: '', danger: false, loading: false, action: null });
 
@@ -144,6 +150,11 @@ async function runConfirm() {
 
 function onAction({ detail: { action, row } }) {
   if (action === 'edit') return openForm(row);
+  if (action === 'identities') {
+    identitiesUser.value = row;
+    identitiesOpen.value = true;
+    return;
+  }
   if (action === 'lock') {
     return ask({
       title: 'Khóa tài khoản',
