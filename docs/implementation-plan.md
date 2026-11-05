@@ -76,7 +76,7 @@ Hàm `sso::service::complete_login(ctx, ProviderIdentity, client)` nhận danh t
 
 | Vấn đề | Trạng thái |
 |---|---|
-| `hui-modal` có cả property `open` và method `open()` → Vue `:open` không mở được modal | Đã sửa trong H-UI (commit cục bộ, chưa push); đang đổi tiếp sang quy ước `open` (boolean) + `show()` / `hide()` / `toggle()` cho mọi component. App dùng lại `:open="x"`, ~~`:open.attr="x \|\| null"`~~ |
+| `hui-modal` có cả property `open` và method `open()` → Vue `:open` không mở được modal | Đã sửa trong H-UI và **đã push** (2026-11-05, commit `3556006` → `c336342`): 20 overlay dùng chung `open` (boolean) + `show()` / `hide()` / `toggle()` + sự kiện `hui-open` / `hui-after-open` / `hui-close` / `hui-after-close`. Quy ước của H-UI: `.agents/rules/naming_rule.md`. Release bản 0.5.2 qua PR "chore: version packages" do CI mở. App dùng lại `:open="x"`, ~~`:open.attr="x \|\| null"`~~ |
 | `hui-input` nhấn Enter không gửi `<form>` | Đã sửa trong H-UI. App đã bỏ ~~`src/utils/enterSubmit.js`~~ |
 | Bind động viết kebab-case (`:confirm-loading="false"`) thành attribute chuỗi `"false"` → bị hiểu là `true` | Giữ nguyên trong H-UI (đúng chuẩn HTML), chỉ ghi vào README. App tuân theo quy ước đặt tên ở dưới |
 
