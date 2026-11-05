@@ -6,10 +6,17 @@ import { P, visibleMenu } from './permissions';
 const labels = (menu) => menu.flatMap((g) => g.items.map((i) => i.label));
 
 describe('menu theo quyền', () => {
-  it('học sinh không thấy nhóm Quản trị', () => {
+  it('học sinh thấy nhóm Học tập, không thấy Quản trị / Dạy học', () => {
     const menu = visibleMenu([P.TEACHER_SUBMIT]);
-    expect(menu).toHaveLength(1);
+    expect(menu.map((g) => g.title)).toEqual([null, 'Học tập']);
     expect(labels(menu)).toContain('Đăng ký làm giáo viên');
+    expect(labels(menu)).toContain('Lớp học của tôi');
+  });
+
+  it('giáo viên thấy nhóm Dạy học', () => {
+    const menu = visibleMenu([P.MASTER_DATA_PROPOSE, P.TEACHING_MANAGE]);
+    expect(menu.map((g) => g.title)).toEqual([null, 'Học tập', 'Dạy học']);
+    expect(labels(menu)).toEqual(expect.arrayContaining(['Lớp học', 'Bài học', 'Ngân hàng câu hỏi', 'Đề ôn tập / kiểm tra']));
   });
 
   it('giáo viên không thấy mục đăng ký giáo viên', () => {
@@ -18,7 +25,7 @@ describe('menu theo quyền', () => {
 
   it('admin thấy đủ mục quản trị', () => {
     const menu = visibleMenu([P.ADMIN, P.USERS_READ, P.AUDIT_READ, P.MASTER_DATA_MANAGE, P.TEACHER_REVIEW]);
-    expect(menu.map((g) => g.title)).toEqual([null, 'Quản trị']);
+    expect(menu.map((g) => g.title)).toEqual([null, 'Học tập', 'Quản trị']);
     expect(labels(menu)).toEqual(
       expect.arrayContaining(['Người dùng', 'Hồ sơ giáo viên', 'Môn học', 'Lớp', 'Danh mục', 'Nhật ký thao tác']),
     );

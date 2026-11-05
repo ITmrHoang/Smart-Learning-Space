@@ -8,6 +8,7 @@ export const P = Object.freeze({
   MASTER_DATA_PROPOSE: 'master_data.propose',
   TEACHER_REVIEW: 'teacher_applications.review',
   TEACHER_SUBMIT: 'teacher_applications.submit',
+  TEACHING_MANAGE: 'teaching.manage',
 });
 
 export const ROLE_LABELS = { admin: 'Quản trị viên', teacher: 'Giáo viên', student: 'Học sinh' };
@@ -23,6 +24,22 @@ export const MENU = [
       { to: '/', label: 'Trang chủ' },
       { to: '/ho-so', label: 'Hồ sơ của tôi' },
       { to: '/dang-ky-giao-vien', label: 'Đăng ký làm giáo viên', permission: P.TEACHER_SUBMIT },
+    ],
+  },
+  {
+    title: 'Học tập',
+    items: [
+      { to: '/lop-hoc-cua-toi', label: 'Lớp học của tôi' },
+      { to: '/kham-pha', label: 'Tìm lớp học' },
+    ],
+  },
+  {
+    title: 'Dạy học',
+    items: [
+      { to: '/day-hoc/lop-hoc', label: 'Lớp học', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/bai-hoc', label: 'Bài học', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/cau-hoi', label: 'Ngân hàng câu hỏi', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/de', label: 'Đề ôn tập / kiểm tra', permission: P.TEACHING_MANAGE },
     ],
   },
   {

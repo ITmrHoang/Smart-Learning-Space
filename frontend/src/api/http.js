@@ -60,9 +60,10 @@ function parseJson(text) {
   }
 }
 
-async function send(method, path, { body, query, token, signal } = {}) {
+async function send(method, path, { body, query, token, signal, raw, blob } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (raw !== undefined) headers['Content-Type'] = 'application/octet-stream';
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let res;
@@ -70,7 +71,7 @@ async function send(method, path, { body, query, token, signal } = {}) {
     res = await fetch(buildUrl(path, query), {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body),
       credentials: 'same-origin',
       signal,
     });
@@ -79,6 +80,7 @@ async function send(method, path, { body, query, token, signal } = {}) {
     throw new ApiError(0, 'NETWORK_ERROR', 'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.');
   }
 
+  if (blob && res.ok) return res.blob();
   const text = await res.text();
   const data = text ? parseJson(text) : null;
   if (!res.ok) {
@@ -130,5 +132,10 @@ export const http = {
   get: (path, query, opts) => request('GET', path, { query, ...opts }),
   post: (path, body, opts) => request('POST', path, { body: body ?? {}, ...opts }),
   patch: (path, body, opts) => request('PATCH', path, { body, ...opts }),
+  put: (path, body, opts) => request('PUT', path, { body, ...opts }),
   del: (path, opts) => request('DELETE', path, opts),
+  /** Gửi nguyên nội dung file (không JSON) */
+  upload: (path, file, query) => request('POST', path, { raw: file, query }),
+  /** Tải file (trả Blob) */
+  blob: (path, query) => request('GET', path, { query, blob: true }),
 };

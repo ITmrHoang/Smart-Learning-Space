@@ -75,3 +75,77 @@ export const adminApi = {
 export const systemApi = {
   health: () => http.get('/health'),
 };
+
+/** Giáo viên soạn nội dung (`/api/teaching/*`). */
+export const teachingApi = {
+  lessons: (query) => http.get('/teaching/lessons', query),
+  lesson: (id) => http.get(`/teaching/lessons/${id}`),
+  createLesson: (data) => http.post('/teaching/lessons', data),
+  updateLesson: (id, data) => http.put(`/teaching/lessons/${id}`, data),
+  archiveLesson: (id) => http.del(`/teaching/lessons/${id}`),
+  publishLesson: (id) => http.post(`/teaching/lessons/${id}/publish`),
+  lessonRevisions: (id) => http.get(`/teaching/lessons/${id}/revisions`),
+
+  classes: (query) => http.get('/teaching/classes', query),
+  class: (id) => http.get(`/teaching/classes/${id}`),
+  createClass: (data) => http.post('/teaching/classes', data),
+  updateClass: (id, data) => http.put(`/teaching/classes/${id}`, data),
+  archiveClass: (id) => http.post(`/teaching/classes/${id}/archive`),
+  restoreClass: (id) => http.post(`/teaching/classes/${id}/restore`),
+  copyClass: (id, title) => http.post(`/teaching/classes/${id}/copy`, { title }),
+  regenerateCode: (id) => http.post(`/teaching/classes/${id}/invite-code`),
+  members: (id, status) => http.get(`/teaching/classes/${id}/members`, { status }),
+  addMember: (id, login) => http.post(`/teaching/classes/${id}/members`, { login }),
+  /** action: approve | reject | remove */
+  changeMember: (id, userId, action) => http.post(`/teaching/classes/${id}/members/${userId}/${action}`),
+  path: (id) => http.get(`/teaching/classes/${id}/path`),
+  savePath: (id, steps) => http.put(`/teaching/classes/${id}/path`, { steps }),
+  publishPath: (id) => http.post(`/teaching/classes/${id}/path/publish`),
+  progress: (id) => http.get(`/teaching/classes/${id}/progress`),
+
+  questions: (query) => http.get('/teaching/questions', query),
+  question: (id) => http.get(`/teaching/questions/${id}`),
+  createQuestion: (data) => http.post('/teaching/questions', data),
+  updateQuestion: (id, data) => http.put(`/teaching/questions/${id}`, data),
+  archiveQuestion: (id) => http.del(`/teaching/questions/${id}`),
+  regradeQuestion: (id) => http.post(`/teaching/questions/${id}/regrade`),
+  bulkCreateQuestions: (items) => http.post('/teaching/questions/bulk', { items }),
+  importTemplate: () => http.blob('/teaching/questions/import/template'),
+  importPreview: (subjectId, file) => http.upload('/teaching/questions/import/preview', file, { subjectId }),
+  folders: () => http.get('/teaching/question-folders'),
+  createFolder: (data) => http.post('/teaching/question-folders', data),
+  updateFolder: (id, data) => http.put(`/teaching/question-folders/${id}`, data),
+  deleteFolder: (id) => http.del(`/teaching/question-folders/${id}`),
+
+  exams: (query) => http.get('/teaching/exams', query),
+  exam: (id) => http.get(`/teaching/exams/${id}`),
+  createExam: (data) => http.post('/teaching/exams', data),
+  updateExam: (id, data) => http.put(`/teaching/exams/${id}`, data),
+  archiveExam: (id) => http.del(`/teaching/exams/${id}`),
+  previewExam: (id) => http.post(`/teaching/exams/${id}/preview`),
+  examAttempts: (id, classId) => http.get(`/teaching/exams/${id}/attempts`, { classId }),
+};
+
+/** Học sinh: lớp học, lộ trình. */
+export const learnApi = {
+  catalog: (query) => http.get('/classes', query),
+  detail: (id) => http.get(`/classes/${id}`),
+  enroll: (id) => http.post(`/classes/${id}/enroll`),
+  join: (code) => http.post('/classes/join', { code }),
+  leave: (id) => http.post(`/classes/${id}/leave`),
+  myClasses: () => http.get('/my/classes'),
+  learn: (id) => http.get(`/classes/${id}/learn`),
+  stepLesson: (id, stepId) => http.get(`/classes/${id}/steps/${stepId}/lesson`),
+  completeStep: (id, stepId) => http.post(`/classes/${id}/steps/${stepId}/complete`),
+  startExam: (id, stepId) => http.post(`/classes/${id}/steps/${stepId}/attempts`),
+  stepAttempts: (id, stepId) => http.get(`/classes/${id}/steps/${stepId}/attempts`),
+};
+
+/** Lượt làm bài. */
+export const attemptApi = {
+  get: (id) => http.get(`/attempts/${id}`),
+  /** answer: { selected: [optionId] } | { truth: { optionId: bool } } | { text } */
+  save: (id, position, answer) => http.put(`/attempts/${id}/items/${position}`, answer),
+  check: (id, position) => http.post(`/attempts/${id}/items/${position}/check`),
+  submit: (id) => http.post(`/attempts/${id}/submit`),
+};

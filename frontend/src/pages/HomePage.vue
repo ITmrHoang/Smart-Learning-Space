@@ -7,7 +7,7 @@
     <section class="panel">
       <p>
         Bạn đang đăng nhập với vai trò <strong>{{ ROLE_LABELS[auth.user?.role] }}</strong>.
-        Các chức năng học tập (lớp học, lộ trình, đề ôn tập) sẽ có ở giai đoạn tiếp theo.
+        Vào <RouterLink to="/lop-hoc-cua-toi">Lớp học của tôi</RouterLink> để học tiếp, hoặc <RouterLink to="/kham-pha">tìm lớp học</RouterLink> mới.
       </p>
       <ul class="shortcuts">
         <li v-for="item in shortcuts" :key="item.to">

@@ -43,6 +43,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **lapin** | Kết nối RabbitMQ: API đẩy việc vào hàng đợi, worker nhận việc ra làm |
 | **lettre** | Worker gửi email qua SMTP (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên) |
 | **deunicode** | Bỏ dấu tiếng Việt khi tạo slug / gợi ý username (`Trần Thị` → `tran.thi`) |
+| **calamine** / **rust_xlsxwriter** | Đọc file Excel câu hỏi giáo viên tải lên / tạo file Excel mẫu để giáo viên điền |
 | **thiserror** / **anyhow** | Khai báo lỗi có kiểu trong thư viện / gom lỗi gọn khi khởi động chương trình |
 | **tracing** / **tracing-subscriber** | Ghi log có cấu trúc (kèm `request_id`), đổi sang JSON khi chạy production (`LOG_FORMAT=json`) |
 | **dotenvy** | Nạp cấu hình từ file `backend/.env` khi dev |
@@ -56,6 +57,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **Vue Router** | Điều hướng trang (`/dang-nhap`, `/ho-so`, `/admin/...`) và chặn trang theo quyền |
 | **Pinia** | Lưu trạng thái dùng chung, ví dụ người dùng đang đăng nhập và danh sách quyền |
 | **[H-UI](../HUI)** (`@itmrhoang/h-ui`) | Thư viện web component của dự án (nút, ô nhập, bảng, modal…); link bản build ở máy (`file:../../HUI`) |
+| `hui-markdown` + `hui-math` (trong H-UI) | Hiển thị nội dung bài học / câu hỏi: Markdown + công thức LaTeX vẽ bằng MathML gốc của trình duyệt (không cần KaTeX / MathJax) |
 | **Vitest** + **jsdom** | Unit test cho API client, kiểm tra quyền, tiện ích SSO… |
 
 ### Hạ tầng (Docker, file `deploy/docker-compose.dev.yml`)

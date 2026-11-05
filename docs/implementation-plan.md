@@ -20,12 +20,12 @@
 
 | Module | Nội dung | Trạng thái |
 |---|---|---|
-| **M7** | Thư viện bài: bài học (Markdown + công thức + video YouTube / link), gắn môn / lớp / danh mục, bản nháp → xuất bản, lịch sử phiên bản | Đang làm |
-| **M8** | Lớp học + ghi danh: tạo / sửa / sao chép lớp học, hiển thị public / unlisted / private, ghi danh tự do / chờ duyệt / mã mời, giáo viên thêm / duyệt / mời ra học sinh | Đang làm |
-| **M9** | Lộ trình + tiến độ: các bước (mốc, bài, đề) có thứ tự, kéo thả, điều kiện mở khóa, bản nháp → xuất bản; học sinh học theo lộ trình, đánh dấu hoàn thành; giáo viên xem tiến độ | Đang làm |
-| **M10** | Ngân hàng câu hỏi: thư mục, 4 dạng câu (một đáp án, nhiều đáp án, đúng/sai 4 ý, trả lời ngắn), mức độ, danh mục, phiên bản; import Excel (xem trước → lưu) | Đang làm |
-| **M11** | Đề ôn tập / kiểm tra: phần I/II/III, câu cố định hoặc **ma trận** (danh mục × mức độ), trộn câu trong phần + trộn đáp án theo từng lượt, đồng hồ ở server, lưu đáp án liên tục, chấm theo cấu trúc THPT, ôn tập kiểm tra từng câu, xem lại + lời giải, chấm lại khi sửa đáp án, kết quả cho giáo viên | Đang làm |
-| **M12** | Giao diện giáo viên + học sinh; H-UI thêm `hui-math` (LaTeX → MathML) và `hui-markdown` | Đang làm |
+| **M7** | Thư viện bài: bài học (Markdown + công thức + video YouTube / link), gắn môn / lớp / danh mục, bản nháp → xuất bản, lịch sử phiên bản | ✅ Xong (2026-11-06) |
+| **M8** | Lớp học + ghi danh: tạo / sửa / sao chép lớp học, hiển thị public / unlisted / private, ghi danh tự do / chờ duyệt / mã mời, giáo viên thêm / duyệt / mời ra học sinh | ✅ Xong (2026-11-06) |
+| **M9** | Lộ trình + tiến độ: các bước (mốc, bài, đề) có thứ tự, kéo thả, điều kiện mở khóa, bản nháp → xuất bản; học sinh học theo lộ trình, đánh dấu hoàn thành; giáo viên xem tiến độ | ✅ Xong (2026-11-06) |
+| **M10** | Ngân hàng câu hỏi: thư mục, 4 dạng câu (một đáp án, nhiều đáp án, đúng/sai 4 ý, trả lời ngắn), mức độ, danh mục, phiên bản; import Excel (xem trước → lưu) | ✅ Xong (2026-11-06) |
+| **M11** | Đề ôn tập / kiểm tra: phần I/II/III, câu cố định hoặc **ma trận** (danh mục × mức độ), trộn câu trong phần + trộn đáp án theo từng lượt, đồng hồ ở server, lưu đáp án liên tục, chấm theo cấu trúc THPT, ôn tập kiểm tra từng câu, xem lại + lời giải, chấm lại khi sửa đáp án, kết quả cho giáo viên | ✅ Xong (2026-11-06) |
+| **M12** | Giao diện giáo viên + học sinh; H-UI thêm `hui-math` (LaTeX → MathML) và `hui-markdown` | ✅ Xong (2026-11-06) |
 
 **Để sau (ghi rõ để không quên):** upload video lên Garage (chưa dựng Garage — hiện dùng link YouTube / mp4), import Word / PDF, ôn tập lặp lại ngắt quãng (flashcard), trang công khai có SEO, trợ giảng, nhóm học sinh + lộ trình riêng, theo dõi % xem video, ghi nhận rời tab khi làm bài, xuất bảng điểm Excel. H-UI `hui-question`, `hui-quiz`, `hui-learning-path`, `hui-class-card` tạm làm trong app (Vue), tách sang H-UI sau.
 
@@ -38,7 +38,53 @@
 - **Câu hỏi**: nội dung Markdown + LaTeX `$…$`. Mỗi lần sửa tạo `question_versions` mới (JSON: nội dung, đáp án có **ID cố định**, đáp án đúng theo ID, lời giải, có trộn đáp án hay không). Lượt làm bài trỏ tới đúng phiên bản đã làm. Sửa đáp án đúng → API báo số bài đã nộp bị ảnh hưởng → giáo viên bấm "Chấm lại".
 - **Đề**: `kind = practice` (ôn tập: không giới hạn lần, kiểm tra từng câu ngay, xem lời giải) hoặc `test` (kiểm tra: thời gian làm, khung giờ mở, số lần làm tối đa, chế độ hiện đáp án). Mỗi phần có cách chấm: `per_question` (đúng hết mới được điểm) hoặc `thpt_true_false` (đúng 1/2/3/4 ý = 0,1 / 0,25 / 0,5 / 1 × điểm câu). Lượt làm lưu `attempt_items` (câu, phiên bản, thứ tự đáp án đã trộn). **Đáp án đúng không bao giờ gửi xuống trước khi nộp** (trừ câu ôn tập vừa bấm "Kiểm tra"). Hết giờ: lần gọi API kế tiếp tự nộp bài.
 
-Chi tiết API, bảng và ca test của từng module ghi ở mục "Kết quả đợt 2" khi làm xong.
+### Kết quả đợt 2 (2026-11-06)
+
+Migration `20261106000002_lessons_classes_paths.sql` (`lessons`, `lesson_tags`, `lesson_revisions`, `classes`, `class_grades`, `class_tags`, `class_members`, `path_steps`, `path_versions`, `step_progress`) và `20261106000003_questions_exams.sql` (`question_folders`, `questions`, `question_tags`, `question_versions`, `exams`, `exam_sections`, `exam_section_questions`, `exam_section_rules`, `attempts`, `attempt_items`). Module backend: `core/src/modules/{lessons, classes, questions, exams}`; controller `api/src/controllers/{teaching, learning}.rs`.
+
+| API giáo viên (`/api/teaching`) | Mô tả |
+|---|---|
+| `lessons` (GET, POST) · `lessons/{id}` (GET, PUT, DELETE = ẩn) · `lessons/{id}/publish` · `lessons/{id}/revisions` | Thư viện bài |
+| `classes` (GET, POST) · `classes/{id}` (GET, PUT) · `…/archive` · `…/restore` · `…/copy` · `…/invite-code` | Lớp học |
+| `classes/{id}/members` (GET `?status=`, POST `{login}`) · `…/members/{userId}/approve\|reject\|remove` | Học sinh của lớp |
+| `classes/{id}/path` (GET, PUT `{steps}`) · `…/path/publish` · `classes/{id}/progress` | Lộ trình + tiến độ cả lớp |
+| `questions` (GET lọc `q, subjectId, folderId (id\|none), tagId, level, kind`; POST) · `questions/{id}` (GET, PUT → `{question, answerChanged, affectedAttempts}`, DELETE) · `questions/{id}/regrade` | Ngân hàng câu hỏi |
+| `questions/import/template` (tải .xlsx) · `questions/import/preview?subjectId=` (body = file .xlsx) · `questions/bulk` | Import Excel |
+| `question-folders` (GET, POST) · `question-folders/{id}` (PUT, DELETE) | Thư mục |
+| `exams` (GET, POST) · `exams/{id}` (GET, PUT, DELETE) · `exams/{id}/preview` (làm thử) · `exams/{id}/attempts?classId=` | Đề + kết quả |
+
+| API học sinh | Mô tả |
+|---|---|
+| `GET /api/classes` (lớp công khai, lọc `q, subjectId, gradeId`) · `GET /api/classes/{id}` (giới thiệu + mục lục) | Tìm lớp học |
+| `POST /api/classes/{id}/enroll` · `POST /api/classes/join {code}` · `POST /api/classes/{id}/leave` · `GET /api/my/classes` | Ghi danh, lớp của tôi (kèm % tiến độ) |
+| `GET /api/classes/{id}/learn` · `GET …/steps/{stepId}/lesson` · `POST …/steps/{stepId}/complete` | Học theo lộ trình |
+| `POST …/steps/{stepId}/attempts` (bắt đầu / làm tiếp) · `GET …/steps/{stepId}/attempts` | Làm đề trong lớp |
+| `GET /api/attempts/{id}` · `PUT …/items/{position}` (lưu câu trả lời) · `POST …/items/{position}/check` (ôn tập) · `POST …/submit` | Làm bài, xem lại |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Điểm | Lưu `double precision`, làm tròn 0,01 trong code (không thêm crate số thập phân) |
+| Trộn | Trộn câu **trong từng phần** (giữ thứ tự phần), trộn phương án câu một / nhiều đáp án; câu đúng/sai giữ thứ tự ý a–d; câu bỏ chọn "cho phép trộn" thì không trộn |
+| Ma trận | Ô ma trận = danh mục × mức độ × dạng câu × thư mục (đều tùy chọn) × số câu; lưu đề báo ô nào không đủ câu; mỗi lượt rút ngẫu nhiên, không trùng câu cố định / câu đã rút |
+| Lượt làm dở | Bấm "Làm bài" lần nữa thì làm tiếp lượt cũ; hết giờ (cho trễ 15 giây) thì lần gọi kế tiếp tự nộp |
+| Hiện đáp án | Ôn tập: luôn hiện sau khi nộp + từng câu khi bấm "Kiểm tra". Kiểm tra: ngay sau khi nộp / sau giờ đóng đề / không hiện (vẫn có điểm) |
+| Bước đề "xong" | Đã nộp ≥ 1 lần và điểm cao nhất ≥ `passScore` (nếu có) |
+| Import | Gửi nguyên file .xlsx làm body (không multipart), tối đa 1 MB / 500 câu; danh mục ghi theo tên, tên không có thì cảnh báo và bỏ qua |
+| Giao diện câu hỏi / làm bài / lộ trình | Làm bằng component Vue trong app (`QuestionView`, `AttemptPage`, `PathEditor`, `ClassCard`); kéo thả lộ trình dùng `hui-sortable` có sẵn. Tách thành `hui-question` / `hui-quiz` / `hui-learning-path` / `hui-class-card` sau |
+| H-UI mới | `hui-math` (LaTeX → MathML, zero-dependency) và `hui-markdown` (Markdown + công thức, dựng DOM an toàn) — commit `2abf0d2` trong repo H-UI, changeset minor |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 40 / 40 đạt (thêm: chấm điểm THPT / trả lời ngắn, đọc Excel + file mẫu đọc lại được, mở khóa lộ trình, `next` an toàn…) |
+| Backend integration test | 83 / 83 đạt — thêm `lessons` 2, `questions` 4, `exams` 6, `classes` 4 (ca chính: xuất bản / phiên bản bài; quyền môn dạy; câu hỏi 4 dạng + phiên bản giữ ID; thư mục; import Excel xem trước → lưu, lỗi một câu không lưu câu nào; đề không lộ đáp án trước khi nộp; chấm THPT 1,25 / 2; trộn khác nhau mỗi lượt; ma trận rút đúng ô; ôn tập kiểm tra từng câu + khóa câu; sửa đáp án → chấm lại; ghi danh 3 chế độ + mã mời + mời ra; lộ trình xuất bản / khóa bước / điểm đạt / đổi thứ tự không mất tiến độ; đề đóng, hết giờ tự nộp, hết lượt; sao chép / lưu trữ lớp) |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 29 / 29 đạt (thêm video YouTube → nhúng, đồng hồ theo giờ server, câu đã làm, menu Học tập / Dạy học); `npm run build` đạt |
+| H-UI | 148 unit test + 7 story test đạt; `npm run build`, `build:cdn`, `check:types` đạt |
+| Trình duyệt | Ngân hàng câu hỏi hiển thị công thức (cả hệ phương trình), xem đáp án; soạn bài có xem trước Markdown + bảng + công thức, nhúng YouTube, xuất bản v1; tạo lớp học, thêm mốc / bài / 2 đề, **kéo thả** đổi thứ tự, xuất bản; học sinh tìm lớp → vào học → học bài → "Đã học xong" → làm "Kiểm tra 15 phút" (đồng hồ, lưu tự động, 5/5 câu) → nộp → 1,75 / 2,25 đúng kỳ vọng, xem lại có tô đúng / sai / một phần + lời giải; bước ôn tập mở khóa sau khi xong đề, "Kiểm tra đáp án" từng câu; giáo viên xem tab Tiến độ |
+
+**Dữ liệu thử còn trong DB dev:** lớp học "Toán 9 — ôn thi vào 10 (tự học)", bài "Bài 1. Căn bậc hai", 5 câu hỏi, 2 đề (của admin) và học sinh thử `hs.thu` (mật khẩu `MatKhau123`, chỉ dùng cho dev).
 
 ### M6 — SSO
 

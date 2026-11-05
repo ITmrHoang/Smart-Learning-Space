@@ -107,3 +107,91 @@ dl.info dd {
     min-width: 100%;
   }
 }
+
+/* ---------- Dạy / học ---------- */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.row.between {
+  justify-content: space-between;
+}
+.stack {
+  display: grid;
+  gap: 12px;
+}
+.card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.card {
+  background: var(--hui-bg-container, #fff);
+  border: 1px solid var(--hui-border-secondary, #eceef1);
+  border-radius: var(--hui-radius-lg, 12px);
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.card a.title {
+  color: inherit;
+}
+.empty {
+  padding: 24px;
+  text-align: center;
+}
+.field-error {
+  color: var(--hui-danger, #d4380d);
+  font-size: 0.875rem;
+}
+.progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--hui-border-secondary, #eceef1);
+  overflow: hidden;
+}
+.progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--hui-success, #52c41a);
+}
+.clean-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.native-select,
+.native-input {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--hui-border, #d9d9d9);
+  border-radius: var(--hui-radius-md, 8px);
+  background: var(--hui-bg-container, #fff);
+  color: inherit;
+}
+
+@media (max-width: 860px) {
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+}

@@ -70,6 +70,22 @@ export const routes = [
         component: () => import('../pages/admin/AuditLogsPage.vue'),
         meta: { permission: P.AUDIT_READ },
       },
+      // Học sinh (mọi tài khoản đã đăng nhập)
+      { path: 'lop-hoc-cua-toi', name: 'my-classes', component: () => import('../pages/learning/MyClassesPage.vue') },
+      { path: 'kham-pha', name: 'explore', component: () => import('../pages/learning/ExploreClassesPage.vue') },
+      { path: 'lop-hoc/:id', name: 'class', component: () => import('../pages/learning/ClassPage.vue') },
+      { path: 'lop-hoc/:id/bai/:stepId', name: 'lesson-view', component: () => import('../pages/learning/LessonViewPage.vue') },
+      { path: 'bai-lam/:id', name: 'attempt', component: () => import('../pages/learning/AttemptPage.vue') },
+      // Giáo viên soạn nội dung
+      ...[
+        ['day-hoc/lop-hoc', 'teach-classes', () => import('../pages/teaching/ClassesPage.vue')],
+        ['day-hoc/lop-hoc/:id', 'teach-class', () => import('../pages/teaching/ClassManagePage.vue')],
+        ['day-hoc/bai-hoc', 'teach-lessons', () => import('../pages/teaching/LessonsPage.vue')],
+        ['day-hoc/bai-hoc/:id', 'teach-lesson', () => import('../pages/teaching/LessonEditorPage.vue')],
+        ['day-hoc/cau-hoi', 'teach-questions', () => import('../pages/teaching/QuestionBankPage.vue')],
+        ['day-hoc/de', 'teach-exams', () => import('../pages/teaching/ExamsPage.vue')],
+        ['day-hoc/de/:id', 'teach-exam', () => import('../pages/teaching/ExamEditorPage.vue')],
+      ].map(([path, name, component]) => ({ path, name, component, meta: { permission: P.TEACHING_MANAGE } })),
       { path: 'khong-co-quyen', name: 'forbidden', component: () => import('../pages/ForbiddenPage.vue') },
     ],
   },
