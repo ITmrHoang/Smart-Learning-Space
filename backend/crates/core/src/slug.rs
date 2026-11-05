@@ -1,5 +1,10 @@
 //! Tạo slug từ tên tiếng Việt: "Lớp 10 Chuyên" → "lop-10-chuyen".
 
+/// Chuỗi để tìm kiếm: bỏ dấu, chữ thường, gộp khoảng trắng ("Hàm  SỐ" → "ham so").
+pub fn fold(input: &str) -> String {
+    deunicode::deunicode(input).to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn slugify(input: &str) -> String {
     // deunicode bỏ dấu tiếng Việt ("ớ" → "o", "đ" → "d").
     let ascii = deunicode::deunicode(input).to_lowercase();

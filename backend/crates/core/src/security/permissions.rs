@@ -29,6 +29,9 @@ pub enum Permission {
     /// Gửi hồ sơ đăng ký làm giáo viên.
     #[serde(rename = "teacher_applications.submit")]
     TeacherApplicationsSubmit,
+    /// Soạn bài học, lớp học, câu hỏi, đề (giáo viên; admin cũng có để thử).
+    #[serde(rename = "teaching.manage")]
+    TeachingManage,
 }
 
 impl Permission {
@@ -41,6 +44,7 @@ impl Permission {
         Permission::MasterDataPropose,
         Permission::TeacherApplicationsReview,
         Permission::TeacherApplicationsSubmit,
+        Permission::TeachingManage,
     ];
 }
 
@@ -52,8 +56,9 @@ const ADMIN: &[Permission] = &[
     Permission::MasterDataManage,
     Permission::MasterDataPropose,
     Permission::TeacherApplicationsReview,
+    Permission::TeachingManage,
 ];
-const TEACHER: &[Permission] = &[Permission::MasterDataPropose];
+const TEACHER: &[Permission] = &[Permission::MasterDataPropose, Permission::TeachingManage];
 const STUDENT: &[Permission] = &[Permission::TeacherApplicationsSubmit];
 
 /// Bảng vai trò → quyền.
@@ -97,6 +102,8 @@ mod tests {
     #[test]
     fn ten_quyen_dang_chuoi_cho_frontend() {
         assert_eq!(serde_json::to_value(Permission::AdminAccess).unwrap(), "admin.access");
-        assert_eq!(Permission::ALL.len(), 8);
+        assert_eq!(Permission::ALL.len(), 9);
+        assert!(has_permission(UserRole::Teacher, Permission::TeachingManage));
+        assert!(!has_permission(UserRole::Student, Permission::TeachingManage));
     }
 }

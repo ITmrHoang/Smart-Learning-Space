@@ -14,7 +14,31 @@
 | **M6.1** | SSO phần 1: bảng liên kết, chính sách đăng nhập / tạo / liên kết tài khoản (chính sách đã chốt 2026-11-05), xác nhận bằng mật khẩu hoặc OTP, tự gỡ / admin gỡ liên kết | ✅ Xong (2026-11-05) |
 | **M6.2** | SSO phần 2: luồng OIDC thật với Google / Microsoft, nút đăng nhập + trang liên kết ở giao diện, giới hạn số thiết bị, đặt mật khẩu lần đầu | ✅ Xong (2026-11-05) — chờ bạn tạo ứng dụng OAuth thật để thử với Google / Microsoft |
 
-Sau M6: G2 (thư viện bài, lớp học + lộ trình) theo `analyst.md` mục 7.
+## Đợt 2 — Bài học, lớp học, câu hỏi, ôn tập / kiểm tra (G2 + G3, bắt đầu 2026-11-05)
+
+> Yêu cầu: "làm tiếp phần tạo bài học và nội dung ôn tập, kiểm tra, các khóa cho học sinh và giáo viên; chưa cần live stream và bảng thông minh". "Khóa học" trên giao diện = **lớp học** (analyst.md v0.4: không còn tầng khóa học riêng; lớp học kiểu tự học chính là khóa tự học).
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M7** | Thư viện bài: bài học (Markdown + công thức + video YouTube / link), gắn môn / lớp / danh mục, bản nháp → xuất bản, lịch sử phiên bản | Đang làm |
+| **M8** | Lớp học + ghi danh: tạo / sửa / sao chép lớp học, hiển thị public / unlisted / private, ghi danh tự do / chờ duyệt / mã mời, giáo viên thêm / duyệt / mời ra học sinh | Đang làm |
+| **M9** | Lộ trình + tiến độ: các bước (mốc, bài, đề) có thứ tự, kéo thả, điều kiện mở khóa, bản nháp → xuất bản; học sinh học theo lộ trình, đánh dấu hoàn thành; giáo viên xem tiến độ | Đang làm |
+| **M10** | Ngân hàng câu hỏi: thư mục, 4 dạng câu (một đáp án, nhiều đáp án, đúng/sai 4 ý, trả lời ngắn), mức độ, danh mục, phiên bản; import Excel (xem trước → lưu) | Đang làm |
+| **M11** | Đề ôn tập / kiểm tra: phần I/II/III, câu cố định hoặc **ma trận** (danh mục × mức độ), trộn câu trong phần + trộn đáp án theo từng lượt, đồng hồ ở server, lưu đáp án liên tục, chấm theo cấu trúc THPT, ôn tập kiểm tra từng câu, xem lại + lời giải, chấm lại khi sửa đáp án, kết quả cho giáo viên | Đang làm |
+| **M12** | Giao diện giáo viên + học sinh; H-UI thêm `hui-math` (LaTeX → MathML) và `hui-markdown` | Đang làm |
+
+**Để sau (ghi rõ để không quên):** upload video lên Garage (chưa dựng Garage — hiện dùng link YouTube / mp4), import Word / PDF, ôn tập lặp lại ngắt quãng (flashcard), trang công khai có SEO, trợ giảng, nhóm học sinh + lộ trình riêng, theo dõi % xem video, ghi nhận rời tab khi làm bài, xuất bảng điểm Excel. H-UI `hui-question`, `hui-quiz`, `hui-learning-path`, `hui-class-card` tạm làm trong app (Vue), tách sang H-UI sau.
+
+### Thiết kế chung
+
+- Quyền mới `teaching.manage` (giáo viên + admin). Giáo viên chỉ tạo bài / lớp học / câu hỏi / đề trong **môn đã được duyệt** (`teacher_subjects`); admin không giới hạn. Mọi nội dung thuộc về người tạo (`owner_id`), chỉ người đó sửa (admin cũng không sửa nội dung của giáo viên).
+- API giáo viên dưới `/api/teaching/*`; API học sinh dưới `/api/classes/*`, `/api/my/*`, `/api/attempts/*`. Học sinh = bất kỳ tài khoản đã đăng nhập nào ghi danh vào lớp học.
+- **Bài học**: bảng `lessons` là bản nháp; "Xuất bản" chép sang `lesson_revisions` (số phiên bản tăng dần). Học sinh luôn đọc bản xuất bản mới nhất → sửa bài một lần, mọi lớp học dùng bài đó đều thấy bản mới.
+- **Lộ trình**: mỗi lớp học có một lộ trình chính. `path_steps` là bản nháp (giáo viên kéo thả, lưu cả danh sách); "Xuất bản" lưu ảnh chụp JSON vào `path_versions`; học sinh đọc phiên bản mới nhất. Tiến độ gắn với **ID bước** nên đổi thứ tự / sửa không mất tiến độ. Bước: `milestone` (mốc), `lesson`, `exam`. Mở khóa: `free` hoặc `previous` (phải xong bước trước, bỏ qua mốc). Bước đề có thể đặt `passScore` — chỉ tính là xong khi điểm cao nhất ≥ mức này.
+- **Câu hỏi**: nội dung Markdown + LaTeX `$…$`. Mỗi lần sửa tạo `question_versions` mới (JSON: nội dung, đáp án có **ID cố định**, đáp án đúng theo ID, lời giải, có trộn đáp án hay không). Lượt làm bài trỏ tới đúng phiên bản đã làm. Sửa đáp án đúng → API báo số bài đã nộp bị ảnh hưởng → giáo viên bấm "Chấm lại".
+- **Đề**: `kind = practice` (ôn tập: không giới hạn lần, kiểm tra từng câu ngay, xem lời giải) hoặc `test` (kiểm tra: thời gian làm, khung giờ mở, số lần làm tối đa, chế độ hiện đáp án). Mỗi phần có cách chấm: `per_question` (đúng hết mới được điểm) hoặc `thpt_true_false` (đúng 1/2/3/4 ý = 0,1 / 0,25 / 0,5 / 1 × điểm câu). Lượt làm lưu `attempt_items` (câu, phiên bản, thứ tự đáp án đã trộn). **Đáp án đúng không bao giờ gửi xuống trước khi nộp** (trừ câu ôn tập vừa bấm "Kiểm tra"). Hết giờ: lần gọi API kế tiếp tự nộp bài.
+
+Chi tiết API, bảng và ca test của từng module ghi ở mục "Kết quả đợt 2" khi làm xong.
 
 ### M6 — SSO
 

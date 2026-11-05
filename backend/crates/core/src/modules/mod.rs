@@ -4,6 +4,10 @@
 pub mod audit;
 pub mod auth;
 pub mod catalog;
+pub mod classes;
+pub mod exams;
+pub mod lessons;
+pub mod questions;
 pub mod sso;
 pub mod teachers;
 pub mod users;

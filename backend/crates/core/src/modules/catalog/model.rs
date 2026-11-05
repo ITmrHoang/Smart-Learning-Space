@@ -70,6 +70,19 @@ impl QuestionLevel {
     pub const ALL: [QuestionLevel; 4] =
         [QuestionLevel::NhanBiet, QuestionLevel::ThongHieu, QuestionLevel::VanDung, QuestionLevel::VanDungCao];
 
+    pub fn as_str(self) -> &'static str {
+        match self {
+            QuestionLevel::NhanBiet => "nhan_biet",
+            QuestionLevel::ThongHieu => "thong_hieu",
+            QuestionLevel::VanDung => "van_dung",
+            QuestionLevel::VanDungCao => "van_dung_cao",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|l| l.as_str() == s)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             QuestionLevel::NhanBiet => "Nhận biết",

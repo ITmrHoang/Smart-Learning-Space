@@ -23,6 +23,31 @@ pub fn random_otp() -> String {
     }
 }
 
+/// Số ngẫu nhiên đều trong `0..n` (n > 0).
+fn random_below(n: u32) -> u32 {
+    let limit = u32::MAX - (u32::MAX % n);
+    loop {
+        let x = getrandom::u32().expect("hệ điều hành cung cấp số ngẫu nhiên");
+        if x < limit {
+            return x % n;
+        }
+    }
+}
+
+/// Trộn ngẫu nhiên tại chỗ (Fisher–Yates) — trộn câu hỏi / phương án cho từng lượt làm bài.
+pub fn shuffle<T>(items: &mut [T]) {
+    for i in (1..items.len()).rev() {
+        let j = random_below(i as u32 + 1) as usize;
+        items.swap(i, j);
+    }
+}
+
+/// Mã mời lớp học: 8 ký tự dễ đọc (bỏ 0, O, 1, I, L).
+pub fn random_code() -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    (0..8).map(|_| ALPHABET[random_below(ALPHABET.len() as u32) as usize] as char).collect()
+}
+
 pub fn sha256_hex(input: &str) -> String {
     hex::encode(Sha256::digest(input.as_bytes()))
 }

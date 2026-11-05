@@ -60,7 +60,7 @@ async fn me_tra_dung_quyen_theo_vai_tro(pool: PgPool) {
         async move { app.get("/api/auth/me", Some(&token)).await.body["permissions"].clone() }
     };
     assert_eq!(perms(student).await, json!(["teacher_applications.submit"]));
-    assert_eq!(perms(teacher).await, json!(["master_data.propose"]));
+    assert_eq!(perms(teacher).await, json!(["master_data.propose", "teaching.manage"]));
     let admin_perms = perms(admin).await;
     for p in ["admin.access", "users.manage", "master_data.manage", "teacher_applications.review"] {
         assert!(admin_perms.as_array().unwrap().contains(&json!(p)), "admin thiếu {p}");

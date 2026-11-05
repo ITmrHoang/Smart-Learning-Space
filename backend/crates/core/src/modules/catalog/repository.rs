@@ -346,3 +346,21 @@ pub async fn list_pending<'e, E: PgExecutor<'e>>(db: E) -> sqlx::Result<Vec<Pend
     .fetch_all(db)
     .await
 }
+
+/// Đếm số danh mục hợp lệ của môn `subject_id` trong danh sách mà `viewer` thấy được.
+pub async fn count_visible_tags<'e, E: PgExecutor<'e>>(
+    db: E,
+    subject_id: Uuid,
+    ids: &[Uuid],
+    viewer: Uuid,
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM tags WHERE id = ANY($1) AND subject_id = $2 AND merged_into IS NULL AND is_active \
+         AND (owner_id IS NULL OR owner_id = $3)",
+    )
+    .bind(ids)
+    .bind(subject_id)
+    .bind(viewer)
+    .fetch_one(db)
+    .await
+}

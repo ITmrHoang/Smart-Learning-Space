@@ -31,6 +31,15 @@ pub fn escape_like(input: &str) -> String {
     out
 }
 
+/// SQL ghép từ các hằng số trong code (danh sách cột…), **không** chứa dữ liệu người dùng — dữ liệu luôn đi qua `bind`.
+/// sqlx 0.9 bắt đánh dấu rõ những chuỗi SQL dựng động như vậy.
+#[macro_export]
+macro_rules! sql {
+    ($($arg:tt)*) => {
+        ::sqlx::AssertSqlSafe(format!($($arg)*))
+    };
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

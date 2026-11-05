@@ -31,6 +31,24 @@ where
     }
 }
 
+/// Body JSON không cần validate (lỗi vẫn trả JSON `AppError`).
+pub struct JsonBody<T>(pub T);
+
+impl<S, T> FromRequest<S> for JsonBody<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let Json(value) = Json::<T>::from_request(req, state).await.map_err(|rej| {
+            AppError::bad_request("INVALID_JSON", format!("Dữ liệu gửi lên không hợp lệ: {}", rej.body_text()))
+        })?;
+        Ok(Self(value))
+    }
+}
+
 /// Query string (`?page=1&pageSize=20`).
 pub struct QueryParams<T>(pub T);
 

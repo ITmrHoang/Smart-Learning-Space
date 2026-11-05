@@ -429,3 +429,18 @@ pub async fn subject_names(ctx: &AppContext, ids: &[Uuid]) -> AppResult<Vec<Stri
     let all = repo::list_subjects(&ctx.db, true).await?;
     Ok(all.into_iter().filter(|s| ids.contains(&s.id)).map(|s| s.name).collect())
 }
+
+/// Kiểm tra mọi danh mục thuộc môn `subject_id` và `viewer` thấy được.
+pub async fn ensure_tags_visible(ctx: &AppContext, subject_id: Uuid, ids: &[Uuid], viewer: Uuid) -> AppResult<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut unique = ids.to_vec();
+    unique.sort();
+    unique.dedup();
+    let count = repo::count_visible_tags(&ctx.db, subject_id, &unique, viewer).await?;
+    if count != unique.len() as i64 {
+        return Err(AppError::field("tagIds", "Có danh mục không tồn tại hoặc không thuộc môn học đã chọn."));
+    }
+    Ok(())
+}

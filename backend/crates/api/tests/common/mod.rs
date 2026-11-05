@@ -252,3 +252,32 @@ pub fn reset_token_from(email: &Email) -> String {
     let start = email.text.find("token=").expect("email có link") + "token=".len();
     email.text[start..].split_whitespace().next().unwrap().to_string()
 }
+
+/// Tạo giáo viên đã được duyệt dạy môn `subject_slug`, đăng nhập. Trả về `(id, token, subject_id)`.
+pub async fn teacher(app: &TestApp, username: &str, subject_slug: &str) -> (Uuid, String, Uuid) {
+    let (id, token) = app.login_as(username, UserRole::Teacher).await;
+    let subject = app.subject_id(subject_slug).await;
+    sqlx::query("INSERT INTO teacher_subjects (teacher_id, subject_id) VALUES ($1, $2)")
+        .bind(id)
+        .bind(subject)
+        .execute(&app.ctx.db)
+        .await
+        .unwrap();
+    (id, token, subject)
+}
+
+impl TestApp {
+    pub async fn put(&self, path: &str, body: Value, token: Option<&str>) -> Res {
+        self.send("PUT", path, Some(body), token, None).await
+    }
+
+    pub async fn delete(&self, path: &str, token: Option<&str>) -> Res {
+        self.send("DELETE", path, None, token, None).await
+    }
+}
+
+/// Assert status, in body khi sai.
+#[track_caller]
+pub fn ok(res: &Res, status: StatusCode) {
+    assert_eq!(res.status, status, "{}", res.body);
+}

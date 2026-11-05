@@ -187,3 +187,21 @@ pub async fn reject(
 pub async fn teacher_subject_ids(ctx: &AppContext, teacher_id: Uuid) -> AppResult<Vec<Uuid>> {
     Ok(repo::teacher_subject_ids(&ctx.db, teacher_id).await?)
 }
+
+/// Giáo viên chỉ soạn nội dung (bài, lớp học, câu hỏi, đề) cho môn đã được duyệt; admin soạn được mọi môn.
+pub async fn ensure_can_teach(ctx: &AppContext, actor: &Actor, subject_id: Uuid) -> AppResult<()> {
+    actor.require(Permission::TeachingManage)?;
+    crate::modules::catalog::service::ensure_subjects_active(ctx, &[subject_id])
+        .await
+        .map_err(|_| AppError::field("subjectId", "Môn học không tồn tại hoặc đã ẩn."))?;
+    if actor.is_admin() {
+        return Ok(());
+    }
+    if !teacher_subject_ids(ctx, actor.id).await?.contains(&subject_id) {
+        return Err(AppError::forbidden(
+            "SUBJECT_NOT_ALLOWED",
+            "Bạn chưa được duyệt dạy môn này. Hãy gửi hồ sơ bổ sung môn dạy.",
+        ));
+    }
+    Ok(())
+}

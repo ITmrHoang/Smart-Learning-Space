@@ -38,6 +38,8 @@ pub fn build_router(ctx: AppContext) -> Router {
         .nest("/auth", controllers::auth::routes().merge(controllers::sso::routes()))
         .merge(controllers::catalog::routes())
         .merge(controllers::teachers::routes())
+        .merge(controllers::learning::routes())
+        .nest("/teaching", controllers::teaching::routes())
         .nest("/admin", admin)
         .fallback(|| async { AppError::not_found("API không tồn tại.") });
 

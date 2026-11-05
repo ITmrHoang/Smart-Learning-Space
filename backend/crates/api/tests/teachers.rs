@@ -71,7 +71,7 @@ async fn admin_duyet_ho_so(pool: PgPool) {
     assert_eq!(app.refresh(&cookie).await.status, StatusCode::UNAUTHORIZED);
     let res = app.login("hocsinh1", PASSWORD).await;
     assert_eq!(res.body["user"]["role"], "teacher");
-    assert_eq!(res.body["user"]["permissions"], json!(["master_data.propose"]));
+    assert_eq!(res.body["user"]["permissions"], json!(["master_data.propose", "teaching.manage"]));
 
     let res = app.post(&format!("/api/admin/teacher-applications/{app_id}/approve"), json!({}), Some(&admin)).await;
     assert_eq!((res.status, res.code()), (StatusCode::CONFLICT, "NOT_PENDING"));
