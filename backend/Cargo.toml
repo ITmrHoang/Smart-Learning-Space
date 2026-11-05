@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/api", "crates/worker"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.dev.package."*"]
+# Thư viện bên ngoài build tối ưu một lần để chạy nhanh hơn (argon2 rất chậm ở chế độ debug).
+opt-level = 2

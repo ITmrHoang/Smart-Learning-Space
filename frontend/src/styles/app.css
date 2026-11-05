@@ -1,0 +1,109 @@
+/* Style chung. Màu, bo góc, đổ bóng lấy từ biến của H-UI → tự đổi theo dark mode. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--hui-font-family, system-ui, sans-serif);
+  background: var(--hui-bg-secondary, #f5f6f8);
+  color: var(--hui-text, #1f2329);
+}
+
+a {
+  color: var(--hui-primary, #1677ff);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 0.5em;
+  line-height: 1.25;
+}
+
+.page {
+  display: grid;
+  gap: 16px;
+  max-width: 1200px;
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.page-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.panel {
+  background: var(--hui-bg-container, #fff);
+  border: 1px solid var(--hui-border-secondary, #eceef1);
+  border-radius: var(--hui-radius-lg, 12px);
+  padding: 20px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.toolbar > * {
+  min-width: 180px;
+}
+.toolbar > .grow {
+  flex: 1 1 240px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.muted {
+  color: var(--hui-text-secondary, #6b7280);
+}
+
+.small {
+  font-size: 0.875rem;
+}
+
+dl.info {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+dl.info dt {
+  color: var(--hui-text-secondary, #6b7280);
+}
+dl.info dd {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: 16px;
+  }
+  .toolbar > * {
+    min-width: 100%;
+  }
+}

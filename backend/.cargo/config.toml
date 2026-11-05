@@ -1,0 +1,4 @@
+# Biến môi trường cho `cargo run` / `cargo test` khi dev (giá trị dev, khớp docker-compose.dev.yml).
+# Biến môi trường thật (nếu có) được ưu tiên hơn.
+[env]
+DATABASE_URL = "postgres://sls:sls_dev_password@127.0.0.1:5432/sls"

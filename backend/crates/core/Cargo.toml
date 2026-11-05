@@ -1,0 +1,31 @@
+[package]
+name = "sls-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+argon2 = "0.6.0"
+axum = { version = "0.8.9", features = ["macros"] }
+base64 = "0.23.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+deunicode = "1.6.2"
+dotenvy = "0.15.7"
+getrandom = "0.4.3"
+hex = "0.4.3"
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] }
+lapin = { version = "4.12.3", default-features = false, features = ["default-runtime"] }
+redis = { version = "1.8.1", features = ["tokio-comp", "connection-manager"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+tracing = "0.1.44"
+uuid = { version = "1.29.0", features = ["v7", "serde"] }
+validator = { version = "0.21.0", features = ["derive"] }
+
+[lints]
+workspace = true
