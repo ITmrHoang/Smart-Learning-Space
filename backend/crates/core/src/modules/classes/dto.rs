@@ -229,6 +229,7 @@ pub struct StepInput {
     pub title: String,
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
     #[serde(default = "default_unlock")]
     pub unlock: Unlock,
     #[validate(range(min = 0.0, max = 1000.0, message = "Điểm đạt từ 0 đến 1000."))]
@@ -255,11 +256,14 @@ pub struct DraftStep {
     pub title: String,
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
+    /// Bước buổi học: giờ bắt đầu.
+    pub starts_at: Option<DateTime<Utc>>,
     pub unlock: Unlock,
     pub pass_score: Option<f64>,
     /// Tên bài / đề.
     pub ref_title: Option<String>,
-    /// Bài: published | draft | archived. Đề: ready | empty | archived.
+    /// Bài: published | draft | archived. Đề: ready | empty | archived. Buổi: scheduled | cancelled.
     pub ref_status: Option<String>,
     pub duration_minutes: Option<i32>,
     pub exam_kind: Option<String>,
@@ -292,6 +296,11 @@ pub struct LearnStep {
     pub status: StepStatus,
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
+    pub starts_at: Option<DateTime<Utc>>,
+    pub ends_at: Option<DateTime<Utc>>,
+    /// Buổi học: scheduled | cancelled.
+    pub session_status: Option<String>,
     pub exam_kind: Option<String>,
     pub duration_minutes: Option<i32>,
     pub time_limit_minutes: Option<i32>,

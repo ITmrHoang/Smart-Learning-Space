@@ -40,10 +40,16 @@ use sls_core::{
 };
 use uuid::Uuid;
 
-use crate::extract::{Client, PathParam, QueryParams, ValidatedJson};
+use sls_core::modules::{
+    groups,
+    sessions::{dto as session_dto, service as sessions},
+};
+
+use crate::extract::{Client, JsonBody, PathParam, QueryParams, ValidatedJson};
 
 pub fn routes() -> Router<AppContext> {
     Router::new()
+        .merge(group_routes())
         // Bài học
         .route("/lessons", get(list_lessons).post(create_lesson))
         .route("/lessons/{id}", get(get_lesson).put(update_lesson).delete(archive_lesson))
@@ -440,4 +446,109 @@ async fn exam_attempts(
     QueryParams(q): QueryParams<AttemptQuery>,
 ) -> AppResult<Json<Vec<AttemptSummary>>> {
     Ok(Json(exams::exam_attempts(&ctx, &actor, id, q).await?))
+}
+
+// ---------- Nhóm học sinh (M13) ----------
+
+pub fn group_routes() -> Router<AppContext> {
+    Router::new()
+        .route("/students", get(list_students))
+        .route("/groups", get(list_groups).post(create_group))
+        .route("/groups/{id}", get(get_group).put(update_group).delete(delete_group))
+        .route("/sessions", get(list_sessions).post(create_session))
+        .route("/sessions/{id}", axum::routing::put(update_session))
+        .route("/sessions/{id}/cancel", post(cancel_session))
+        .route("/sessions/{id}/attendance", axum::routing::put(set_attendance))
+}
+
+async fn list_students(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    QueryParams(q): QueryParams<groups::StudentQuery>,
+) -> AppResult<Json<Vec<groups::StudentRef>>> {
+    Ok(Json(groups::students(&ctx, &actor, q).await?))
+}
+
+async fn list_groups(State(ctx): State<AppContext>, actor: Actor) -> AppResult<Json<Vec<groups::GroupResponse>>> {
+    Ok(Json(groups::list(&ctx, &actor).await?))
+}
+
+async fn get_group(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<groups::GroupDetail>> {
+    Ok(Json(groups::get(&ctx, &actor, id).await?))
+}
+
+async fn create_group(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    ValidatedJson(input): ValidatedJson<groups::GroupInput>,
+) -> AppResult<(StatusCode, Json<groups::GroupDetail>)> {
+    Ok((StatusCode::CREATED, Json(groups::create(&ctx, &actor, input).await?)))
+}
+
+async fn update_group(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    ValidatedJson(input): ValidatedJson<groups::GroupInput>,
+) -> AppResult<Json<groups::GroupDetail>> {
+    Ok(Json(groups::update(&ctx, &actor, id, input).await?))
+}
+
+async fn delete_group(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<StatusCode> {
+    groups::delete(&ctx, &actor, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------- Lịch & buổi học (M14) ----------
+
+async fn list_sessions(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    QueryParams(q): QueryParams<session_dto::RangeQuery>,
+) -> AppResult<Json<Vec<session_dto::SessionSummary>>> {
+    Ok(Json(sessions::list_owned(&ctx, &actor, q).await?))
+}
+
+async fn create_session(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    ValidatedJson(input): ValidatedJson<session_dto::CreateSessionInput>,
+) -> AppResult<(StatusCode, Json<session_dto::CreateSessionResponse>)> {
+    Ok((StatusCode::CREATED, Json(sessions::create(&ctx, &actor, input).await?)))
+}
+
+async fn update_session(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    ValidatedJson(input): ValidatedJson<session_dto::UpdateSessionInput>,
+) -> AppResult<Json<session_dto::UpdateSessionResponse>> {
+    Ok(Json(sessions::update(&ctx, &actor, id, input).await?))
+}
+
+async fn cancel_session(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<session_dto::CancelInput>,
+) -> AppResult<Json<session_dto::UpdateSessionResponse>> {
+    Ok(Json(sessions::cancel(&ctx, &actor, id, input).await?))
+}
+
+async fn set_attendance(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<session_dto::AttendanceInput>,
+) -> AppResult<StatusCode> {
+    sessions::set_attendance(&ctx, &actor, id, input).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

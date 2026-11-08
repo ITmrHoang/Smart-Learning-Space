@@ -1,4 +1,4 @@
-//! Binary `worker`: lấy việc từ RabbitMQ và xử lý. Hiện có: gửi email.
+//! Binary `worker`: lấy việc từ RabbitMQ và xử lý. Hiện có: gửi email (kèm file đính kèm như lịch `.ics`).
 //!
 //! Gửi lỗi thì thử lại tối đa 3 lần (chờ 2s, 4s); vẫn lỗi thì bỏ qua và ghi log
 //! (hàng đợi dead-letter sẽ thêm khi có nhiều loại việc hơn).
@@ -14,7 +14,7 @@ use lapin::{
 };
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentType},
+    message::{Attachment as MailAttachment, Mailbox, MultiPart, SinglePart, header::ContentType},
     transport::smtp::authentication::Credentials,
 };
 use sls_core::jobs::{Email, Job, QUEUE_EMAIL, declare_queues};
@@ -39,12 +39,21 @@ impl Mailer {
     }
 
     async fn send(&self, email: &Email) -> anyhow::Result<()> {
-        let message = Message::builder()
+        let builder = Message::builder()
             .from(self.from.clone())
             .to(email.to.parse().context("địa chỉ nhận không hợp lệ")?)
-            .subject(&email.subject)
-            .header(ContentType::TEXT_PLAIN)
-            .body(email.text.clone())?;
+            .subject(&email.subject);
+        let message = if email.attachments.is_empty() {
+            builder.header(ContentType::TEXT_PLAIN).body(email.text.clone())?
+        } else {
+            // Nội dung chữ + file đính kèm (lịch .ics…)
+            let mut parts = MultiPart::mixed().singlepart(SinglePart::plain(email.text.clone()));
+            for a in &email.attachments {
+                let content_type = ContentType::parse(&a.content_type).context("content type đính kèm không hợp lệ")?;
+                parts = parts.singlepart(MailAttachment::new(a.filename.clone()).body(a.content.clone(), content_type));
+            }
+            builder.multipart(parts)?
+        };
         self.transport.send(message).await?;
         Ok(())
     }

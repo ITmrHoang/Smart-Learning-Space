@@ -21,6 +21,7 @@ use crate::{
         audit::{model::AuditEntry, service as audit},
         catalog::service as catalog,
         lessons::service as lessons,
+        notifications::{self, NotificationKind},
         teachers::service as teachers,
         users::service as users,
     },
@@ -194,6 +195,16 @@ pub async fn add_member(ctx: &AppContext, actor: &Actor, id: Uuid, req: AddMembe
         return Err(AppError::field("login", "Bạn là giáo viên của lớp học này."));
     }
     repo::upsert_student(&ctx.db, id, user.id, "active").await?;
+    let class = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
+    notifications::notify(
+        &ctx.db,
+        &[user.id],
+        NotificationKind::ClassAdded,
+        &format!("Bạn được thêm vào lớp học \"{}\"", class.title),
+        &format!("Giáo viên {}", class.owner_name),
+        Some(&format!("/lop-hoc/{id}")),
+    )
+    .await?;
     repo::members(&ctx.db, id, None)
         .await?
         .into_iter()
@@ -204,7 +215,7 @@ pub async fn add_member(ctx: &AppContext, actor: &Actor, id: Uuid, req: AddMembe
 
 /// approve: chờ duyệt → đang học · reject: chờ duyệt → bị từ chối · remove: đang học → bị mời ra.
 pub async fn change_member(ctx: &AppContext, actor: &Actor, id: Uuid, user_id: Uuid, action: &str) -> AppResult<()> {
-    load_own(ctx, actor, id).await?;
+    let class = load_own(ctx, actor, id).await?;
     let (from, to): (&[&str], &str) = match action {
         "approve" => (&["pending"], "active"),
         "reject" => (&["pending"], "rejected"),
@@ -213,6 +224,17 @@ pub async fn change_member(ctx: &AppContext, actor: &Actor, id: Uuid, user_id: U
     };
     if !repo::transition(&ctx.db, id, user_id, from, to).await? {
         return Err(AppError::conflict("INVALID_MEMBER_STATE", "Trạng thái của học sinh đã thay đổi, hãy tải lại."));
+    }
+    if action == "approve" {
+        notifications::notify(
+            &ctx.db,
+            &[user_id],
+            NotificationKind::EnrollmentApproved,
+            &format!("Bạn đã được duyệt vào lớp học \"{}\"", class.title),
+            "Vào lớp để bắt đầu học.",
+            Some(&format!("/lop-hoc/{id}")),
+        )
+        .await?;
     }
     Ok(())
 }

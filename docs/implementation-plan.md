@@ -78,13 +78,32 @@ Migration `20261106000002_lessons_classes_paths.sql` (`lessons`, `lesson_tags`, 
 | Kiểm tra | Kết quả |
 |---|---|
 | Backend unit test (`sls-core`) | 40 / 40 đạt (thêm: chấm điểm THPT / trả lời ngắn, đọc Excel + file mẫu đọc lại được, mở khóa lộ trình, `next` an toàn…) |
-| Backend integration test | 83 / 83 đạt — thêm `lessons` 2, `questions` 4, `exams` 6, `classes` 4 (ca chính: xuất bản / phiên bản bài; quyền môn dạy; câu hỏi 4 dạng + phiên bản giữ ID; thư mục; import Excel xem trước → lưu, lỗi một câu không lưu câu nào; đề không lộ đáp án trước khi nộp; chấm THPT 1,25 / 2; trộn khác nhau mỗi lượt; ma trận rút đúng ô; ôn tập kiểm tra từng câu + khóa câu; sửa đáp án → chấm lại; ghi danh 3 chế độ + mã mời + mời ra; lộ trình xuất bản / khóa bước / điểm đạt / đổi thứ tự không mất tiến độ; đề đóng, hết giờ tự nộp, hết lượt; sao chép / lưu trữ lớp) |
+| Backend integration test | 79 / 79 đạt — thêm `lessons` 2, `questions` 4, `exams` 6, `classes` 4 (ca chính: xuất bản / phiên bản bài; quyền môn dạy; câu hỏi 4 dạng + phiên bản giữ ID; thư mục; import Excel xem trước → lưu, lỗi một câu không lưu câu nào; đề không lộ đáp án trước khi nộp; chấm THPT 1,25 / 2; trộn khác nhau mỗi lượt; ma trận rút đúng ô; ôn tập kiểm tra từng câu + khóa câu; sửa đáp án → chấm lại; ghi danh 3 chế độ + mã mời + mời ra; lộ trình xuất bản / khóa bước / điểm đạt / đổi thứ tự không mất tiến độ; đề đóng, hết giờ tự nộp, hết lượt; sao chép / lưu trữ lớp) |
 | `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
 | Frontend (Vitest) | 29 / 29 đạt (thêm video YouTube → nhúng, đồng hồ theo giờ server, câu đã làm, menu Học tập / Dạy học); `npm run build` đạt |
 | H-UI | 148 unit test + 7 story test đạt; `npm run build`, `build:cdn`, `check:types` đạt |
 | Trình duyệt | Ngân hàng câu hỏi hiển thị công thức (cả hệ phương trình), xem đáp án; soạn bài có xem trước Markdown + bảng + công thức, nhúng YouTube, xuất bản v1; tạo lớp học, thêm mốc / bài / 2 đề, **kéo thả** đổi thứ tự, xuất bản; học sinh tìm lớp → vào học → học bài → "Đã học xong" → làm "Kiểm tra 15 phút" (đồng hồ, lưu tự động, 5/5 câu) → nộp → 1,75 / 2,25 đúng kỳ vọng, xem lại có tô đúng / sai / một phần + lời giải; bước ôn tập mở khóa sau khi xong đề, "Kiểm tra đáp án" từng câu; giáo viên xem tab Tiến độ |
 
 **Dữ liệu thử còn trong DB dev:** lớp học "Toán 9 — ôn thi vào 10 (tự học)", bài "Bài 1. Căn bậc hai", 5 câu hỏi, 2 đề (của admin) và học sinh thử `hs.thu` (mật khẩu `MatKhau123`, chỉ dùng cho dev).
+
+## Đợt 3 — Nhóm học sinh, lịch & buổi học, thông báo (G4, bắt đầu 2026-11-08)
+
+> Yêu cầu: "tiếp tục". Theo `analyst.md` mục 7, sau G2 + G3 là G4. Vẫn **chưa** làm live stream (LiveKit) và bảng thông minh: buổi học tạm dùng **link họp ngoài** (Google Meet / Zoom…) do giáo viên dán vào; khi có phòng live (G5) thì nút "Vào học" chuyển sang `/live/{mã buổi}`.
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M13** | Nhóm học sinh: giáo viên tạo nhóm từ học sinh các lớp học của mình (một lớp hoặc nhiều lớp); dùng để mời buổi học | Đang làm |
+| **M14** | Lịch & buổi học kiểu Google Meet: buổi lẻ hoặc lặp hằng tuần (chọn thứ, ngày kết thúc); mời lớp học / nhóm / từng học sinh; ai được vào (người được mời · thành viên lớp · mọi tài khoản); link họp; bài sẽ dạy; chặn trùng lịch giáo viên, cảnh báo học sinh trùng lịch; sửa / dời / hủy "chỉ buổi này" hoặc "buổi này và các buổi sau"; email lời mời kèm `.ics` (cập nhật / hủy dùng cùng `UID`, tăng `SEQUENCE`); học sinh trả lời Tham gia / Không; "Vào học" mở trước 10 phút, ghi điểm danh; giáo viên điểm danh tay | Đang làm |
+| **M15** | Thông báo trong app (chuông, số chưa đọc) + nhắc lịch qua email và trong app trước giờ học (15 phút / 1 giờ / 1 ngày); thông báo khi được mời / dời / hủy buổi, được duyệt vào lớp, lộ trình có bản mới | Đang làm |
+| **M16** | Buổi học là một bước của lộ trình (xong khi có điểm danh); trang lớp học có "Buổi học sắp tới"; trang chủ có lịch 7 ngày tới + học tiếp; H-UI thêm `hui-timetable` (lịch tuần / ngày có khung giờ, kéo chọn khung giờ để tạo buổi) | Đang làm |
+
+**Để sau:** bài tập về nhà nộp ảnh / PDF (cần dựng Garage để lưu file — làm cùng upload video), lộ trình riêng cho nhóm / học sinh, báo cáo email cho phụ huynh, đặt lịch học kèm 1-1 (D15), đồng bộ hai chiều Google Calendar, thông báo realtime qua WebSocket (hiện hỏi lại mỗi 60 giây).
+
+**Thiết kế:**
+- Giờ lưu UTC; tính lịch lặp và hiển thị theo giờ Việt Nam (UTC+7, không đổi giờ mùa hè). Lịch lặp sinh sẵn từng buổi (`sessions`, tối đa 200 buổi / lịch) và nhớ luật ở `schedules` để sửa "buổi này và các buổi sau".
+- Người được mời = học sinh đang học của lớp được mời ∪ thành viên nhóm được mời ∪ học sinh được mời riêng — tính lúc xem, nên học sinh vào lớp sau vẫn thấy các buổi sắp tới. Email chỉ gửi cho người được mời tại thời điểm tạo / sửa.
+- Nhắc lịch: tiến trình `api` chạy vòng 60 giây, "nhận" buổi cần nhắc bằng `UPDATE … WHERE reminded_at IS NULL RETURNING` nên chạy nhiều instance cũng không gửi trùng.
+- File `.ics` tự sinh theo RFC 5545 (không thêm crate): `METHOD:REQUEST` / `METHOD:CANCEL`, `UID` = `{id buổi}@smart-learning-space`, `SEQUENCE` tăng mỗi lần dời / hủy.
 
 ### M6 — SSO
 

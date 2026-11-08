@@ -106,6 +106,8 @@ pub enum StepKind {
     Milestone,
     Lesson,
     Exam,
+    /// Buổi học (lịch) — xong khi có điểm danh.
+    Session,
 }
 
 impl StepKind {
@@ -114,6 +116,7 @@ impl StepKind {
             StepKind::Milestone => "milestone",
             StepKind::Lesson => "lesson",
             StepKind::Exam => "exam",
+            StepKind::Session => "session",
         }
     }
 }
@@ -145,6 +148,9 @@ pub struct Step {
     pub title: String,
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
+    /// Ảnh chụp cũ (trước khi có buổi học) không có trường này.
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
     pub unlock: Unlock,
     /// Bước đề: điểm cao nhất phải ≥ mức này mới tính là xong.
     pub pass_score: Option<f64>,
@@ -157,6 +163,7 @@ pub struct StepRow {
     pub title: String,
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
     pub unlock: String,
     pub pass_score: Option<f64>,
 }
@@ -168,11 +175,13 @@ impl From<StepRow> for Step {
             kind: match r.kind.as_str() {
                 "lesson" => StepKind::Lesson,
                 "exam" => StepKind::Exam,
+                "session" => StepKind::Session,
                 _ => StepKind::Milestone,
             },
             title: r.title,
             lesson_id: r.lesson_id,
             exam_id: r.exam_id,
+            session_id: r.session_id,
             unlock: if r.unlock == "previous" { Unlock::Previous } else { Unlock::Free },
             pass_score: r.pass_score,
         }

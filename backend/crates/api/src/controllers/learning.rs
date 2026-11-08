@@ -29,10 +29,16 @@ use sls_core::{
 };
 use uuid::Uuid;
 
+use sls_core::modules::{
+    notifications,
+    sessions::{dto as session_dto, service as sessions},
+};
+
 use crate::extract::{JsonBody, PathParam, QueryParams, ValidatedJson};
 
 pub fn routes() -> Router<AppContext> {
     Router::new()
+        .merge(session_routes())
         .route("/classes", get(catalog))
         .route("/classes/join", post(join))
         .route("/classes/{id}", get(detail))
@@ -162,4 +168,78 @@ async fn submit(
     PathParam(id): PathParam<Uuid>,
 ) -> AppResult<Json<AttemptView>> {
     Ok(Json(exams::submit(&ctx, &actor, id).await?))
+}
+
+// ---------- Buổi học + thông báo (M14, M15) ----------
+
+pub fn session_routes() -> Router<AppContext> {
+    Router::new()
+        .route("/my/sessions", get(my_sessions))
+        .route("/sessions/{id}", get(session_detail))
+        .route("/sessions/{id}/rsvp", post(rsvp))
+        .route("/sessions/{id}/join", post(join_session))
+        .route("/notifications", get(list_notifications))
+        .route("/notifications/unread-count", get(unread_count))
+        .route("/notifications/read-all", post(read_all))
+        .route("/notifications/{id}/read", post(read_one))
+}
+
+async fn my_sessions(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    QueryParams(q): QueryParams<session_dto::RangeQuery>,
+) -> AppResult<Json<Vec<session_dto::SessionSummary>>> {
+    Ok(Json(sessions::list_invited(&ctx, &actor, q).await?))
+}
+
+async fn session_detail(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<session_dto::SessionDetail>> {
+    Ok(Json(sessions::detail(&ctx, &actor, id).await?))
+}
+
+async fn rsvp(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<session_dto::RsvpInput>,
+) -> AppResult<StatusCode> {
+    sessions::rsvp(&ctx, &actor, id, input).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn join_session(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<session_dto::JoinResponse>> {
+    Ok(Json(sessions::join(&ctx, &actor, id).await?))
+}
+
+async fn list_notifications(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    QueryParams(q): QueryParams<notifications::NotificationQuery>,
+) -> AppResult<Json<Page<notifications::NotificationResponse>>> {
+    Ok(Json(notifications::list(&ctx, &actor, q).await?))
+}
+
+async fn unread_count(State(ctx): State<AppContext>, actor: Actor) -> AppResult<Json<notifications::UnreadCount>> {
+    Ok(Json(notifications::unread_count(&ctx, &actor).await?))
+}
+
+async fn read_all(State(ctx): State<AppContext>, actor: Actor) -> AppResult<StatusCode> {
+    notifications::mark_all_read(&ctx, &actor).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn read_one(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<StatusCode> {
+    notifications::mark_read(&ctx, &actor, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

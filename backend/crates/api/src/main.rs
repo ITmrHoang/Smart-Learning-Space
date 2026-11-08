@@ -1,4 +1,4 @@
-//! Binary `api`: đọc cấu hình, kết nối hạ tầng, chạy migration, tạo admin đầu tiên, mở cổng HTTP.
+//! Binary `api`: đọc cấu hình, kết nối hạ tầng, chạy migration, tạo admin đầu tiên, chạy nhắc lịch học, mở cổng HTTP.
 
 use std::net::SocketAddr;
 
@@ -34,6 +34,20 @@ async fn main() -> anyhow::Result<()> {
     let bind_addr = config.bind_addr.clone();
     let ctx = AppContext::new(config, pool, jobs, RateLimiter::Valkey(valkey.clone()), Some(valkey));
     users::bootstrap_admin(&ctx).await.map_err(|e| anyhow::anyhow!("tạo admin đầu tiên thất bại: {e}"))?;
+
+    // Nhắc lịch học: mỗi 60 giây "nhận" các buổi đến giờ nhắc (an toàn khi chạy nhiều instance).
+    let reminder_ctx = ctx.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            tick.tick().await;
+            match sls_core::modules::sessions::service::send_due_reminders(&reminder_ctx).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(sessions = n, "đã gửi nhắc lịch học"),
+                Err(e) => tracing::error!(error = %e, "gửi nhắc lịch học thất bại"),
+            }
+        }
+    });
 
     let app = build_router(ctx);
     let listener =

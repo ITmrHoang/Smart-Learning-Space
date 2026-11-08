@@ -13,6 +13,7 @@ pub fn verification_code(to: &str, full_name: &str, code: &str) -> Email {
              Nếu bạn không đăng ký tài khoản, hãy bỏ qua email này.\n\n\
              Smart Learning Space"
         ),
+        ..Default::default()
     }
 }
 
@@ -26,6 +27,7 @@ pub fn password_reset(to: &str, full_name: &str, link: &str) -> Email {
              Nếu bạn không yêu cầu đặt lại mật khẩu, hãy bỏ qua email này; mật khẩu hiện tại vẫn giữ nguyên.\n\n\
              Smart Learning Space"
         ),
+        ..Default::default()
     }
 }
 
@@ -38,6 +40,7 @@ pub fn teacher_application_approved(to: &str, full_name: &str) -> Email {
              Hồ sơ đăng ký giáo viên của bạn đã được duyệt. Hãy đăng nhập lại để bắt đầu tạo lớp học.\n\n\
              Smart Learning Space"
         ),
+        ..Default::default()
     }
 }
 
@@ -52,6 +55,7 @@ pub fn teacher_application_rejected(to: &str, full_name: &str, reason: &str) -> 
              Bạn có thể bổ sung thông tin và gửi lại hồ sơ.\n\n\
              Smart Learning Space"
         ),
+        ..Default::default()
     }
 }
 
@@ -66,5 +70,6 @@ pub fn sso_link_code(to: &str, full_name: &str, code: &str, provider: &str) -> E
              Mã có hiệu lực 15 phút. Nếu không phải bạn, hãy bỏ qua email này; tài khoản vẫn an toàn.\n\n\
              Smart Learning Space"
         ),
+        ..Default::default()
     }
 }

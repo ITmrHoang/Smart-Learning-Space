@@ -23,11 +23,22 @@ pub enum Job {
     SendEmail(Email),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Email {
     pub to: String,
     pub subject: String,
     pub text: String,
+    /// File đính kèm dạng chữ (ví dụ lịch `.ics`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Attachment {
+    pub filename: String,
+    /// Ví dụ `text/calendar; charset=utf-8; method=REQUEST`.
+    pub content_type: String,
+    pub content: String,
 }
 
 #[derive(Clone)]
