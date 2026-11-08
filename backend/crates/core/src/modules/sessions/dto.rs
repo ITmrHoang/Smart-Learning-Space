@@ -224,6 +224,8 @@ pub struct SessionDetail {
     pub join_opens_at: DateTime<Utc>,
     pub can_join: bool,
     pub attended: bool,
+    /// Người xem nằm trong danh sách được mời (mới trả lời tham gia được).
+    pub invited: bool,
 }
 
 #[derive(Debug, Serialize)]

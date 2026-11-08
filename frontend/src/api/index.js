@@ -124,6 +124,22 @@ export const teachingApi = {
   archiveExam: (id) => http.del(`/teaching/exams/${id}`),
   previewExam: (id) => http.post(`/teaching/exams/${id}/preview`),
   examAttempts: (id, classId) => http.get(`/teaching/exams/${id}/attempts`, { classId }),
+
+  // Nhóm học sinh (M13)
+  students: (query) => http.get('/teaching/students', query),
+  groups: () => http.get('/teaching/groups'),
+  group: (id) => http.get(`/teaching/groups/${id}`),
+  createGroup: (data) => http.post('/teaching/groups', data),
+  updateGroup: (id, data) => http.put(`/teaching/groups/${id}`, data),
+  deleteGroup: (id) => http.del(`/teaching/groups/${id}`),
+
+  // Lịch & buổi học (M14) — chi tiết buổi dùng sessionApi.detail
+  sessions: (query) => http.get('/teaching/sessions', query),
+  createSession: (data) => http.post('/teaching/sessions', data),
+  /** data.scope: 'this' | 'following' */
+  updateSession: (id, data) => http.put(`/teaching/sessions/${id}`, data),
+  cancelSession: (id, scope = 'this') => http.post(`/teaching/sessions/${id}/cancel`, { scope }),
+  setAttendance: (id, userId, attended) => http.put(`/teaching/sessions/${id}/attendance`, { userId, attended }),
 };
 
 /** Học sinh: lớp học, lộ trình. */
@@ -148,4 +164,22 @@ export const attemptApi = {
   save: (id, position, answer) => http.put(`/attempts/${id}/items/${position}`, answer),
   check: (id, position) => http.post(`/attempts/${id}/items/${position}/check`),
   submit: (id) => http.post(`/attempts/${id}/submit`),
+};
+
+/** Buổi học: lịch của tôi, chi tiết (cả giáo viên), trả lời tham gia, vào học. */
+export const sessionApi = {
+  /** query: { from, to, classId } — ISO, tối đa 93 ngày */
+  mine: (query) => http.get('/my/sessions', query),
+  detail: (id) => http.get(`/sessions/${id}`),
+  /** response: 'yes' | 'no' */
+  rsvp: (id, response) => http.post(`/sessions/${id}/rsvp`, { response }),
+  join: (id) => http.post(`/sessions/${id}/join`),
+};
+
+/** Thông báo trong app (chuông). */
+export const notificationApi = {
+  list: (query) => http.get('/notifications', query),
+  unreadCount: () => http.get('/notifications/unread-count'),
+  read: (id) => http.post(`/notifications/${id}/read`),
+  readAll: () => http.post('/notifications/read-all'),
 };

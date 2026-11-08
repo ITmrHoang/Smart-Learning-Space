@@ -38,10 +38,10 @@ Backend là một *modular monolith* gồm 3 crate:
 | **reqwest** (rustls) | HTTP client gọi Google / Microsoft khi đăng nhập SSO: đọc cấu hình OIDC, lấy khóa công khai (JWKS), đổi `code` lấy token |
 | **sha2**, **getrandom**, **base64**, **hex** | Sinh token / mã OTP ngẫu nhiên an toàn, lưu token dạng hash SHA-256 (DB bị lộ cũng không dùng được token), PKCE cho SSO |
 | **uuid** (v7) | Khóa chính dạng UUID v7: có thứ tự theo thời gian nên index DB hiệu quả hơn UUID ngẫu nhiên |
-| **chrono**, **time** | Ngày giờ (hạn token, hạn OTP), thời hạn cookie |
+| **chrono**, **time** | Ngày giờ (hạn token, hạn OTP), thời hạn cookie; lịch lặp hằng tuần tính theo giờ Việt Nam (UTC+7) |
 | **redis** (client) | Kết nối Valkey để đếm số lần thử (giới hạn tần suất) |
 | **lapin** | Kết nối RabbitMQ: API đẩy việc vào hàng đợi, worker nhận việc ra làm |
-| **lettre** | Worker gửi email qua SMTP (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên) |
+| **lettre** | Worker gửi email qua SMTP (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên, lời mời / nhắc lịch buổi học). Lời mời kèm file lịch `.ics` (chuẩn RFC 5545, tự sinh) để học sinh thêm vào Google Calendar / Outlook / điện thoại; dời / hủy buổi thì lịch trong máy tự cập nhật |
 | **deunicode** | Bỏ dấu tiếng Việt khi tạo slug / gợi ý username (`Trần Thị` → `tran.thi`) |
 | **calamine** / **rust_xlsxwriter** | Đọc file Excel câu hỏi giáo viên tải lên / tạo file Excel mẫu để giáo viên điền |
 | **thiserror** / **anyhow** | Khai báo lỗi có kiểu trong thư viện / gom lỗi gọn khi khởi động chương trình |
@@ -58,6 +58,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **Pinia** | Lưu trạng thái dùng chung, ví dụ người dùng đang đăng nhập và danh sách quyền |
 | **[H-UI](../HUI)** (`@itmrhoang/h-ui`) | Thư viện web component của dự án (nút, ô nhập, bảng, modal…); link bản build ở máy (`file:../../HUI`) |
 | `hui-markdown` + `hui-math` (trong H-UI) | Hiển thị nội dung bài học / câu hỏi: Markdown + công thức LaTeX vẽ bằng MathML gốc của trình duyệt (không cần KaTeX / MathJax) |
+| `hui-timetable` (trong H-UI) | Lịch tuần / ngày có khung giờ cho Lịch dạy / Lịch học: buổi chồng giờ chia cột, vạch giờ hiện tại, kéo chọn khung giờ trống để tạo buổi học |
 | **Vitest** + **jsdom** | Unit test cho API client, kiểm tra quyền, tiện ích SSO… |
 
 ### Hạ tầng (Docker, file `deploy/docker-compose.dev.yml`)

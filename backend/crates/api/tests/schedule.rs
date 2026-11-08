@@ -138,6 +138,7 @@ async fn tao_buoi_moi_lop_email_ics_va_quyen_xem(pool: PgPool) {
     assert_eq!(d.body["meetingUrl"], "https://meet.google.com/abc-defg-hij");
     assert!(d.body["attendees"].is_null());
     assert_eq!(d.body["canJoin"], false);
+    assert_eq!(d.body["invited"], true);
     // Học sinh vào lớp sau vẫn thấy buổi sắp tới (mời theo lớp học).
     let (_, late) = student(&app, "hs_sau", &c).await;
     assert_eq!(app.get("/api/my/sessions", Some(&late)).await.body.as_array().unwrap().len(), 1);
@@ -152,7 +153,9 @@ async fn tao_buoi_moi_lop_email_ics_va_quyen_xem(pool: PgPool) {
         .await;
     ok(&res, StatusCode::CREATED);
     let open = res.body["sessions"][0]["id"].as_str().unwrap();
-    ok(&app.get(&format!("/api/sessions/{open}"), Some(&s_other)).await, StatusCode::OK);
+    let d = app.get(&format!("/api/sessions/{open}"), Some(&s_other)).await;
+    ok(&d, StatusCode::OK);
+    assert_eq!(d.body["invited"], false);
 
     // Dữ liệu sai: không mời ai với "chỉ người được mời"; lớp học của người khác.
     let res = app

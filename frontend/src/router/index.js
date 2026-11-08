@@ -76,8 +76,12 @@ export const routes = [
       { path: 'lop-hoc/:id', name: 'class', component: () => import('../pages/learning/ClassPage.vue') },
       { path: 'lop-hoc/:id/bai/:stepId', name: 'lesson-view', component: () => import('../pages/learning/LessonViewPage.vue') },
       { path: 'bai-lam/:id', name: 'attempt', component: () => import('../pages/learning/AttemptPage.vue') },
+      { path: 'lich-hoc', name: 'my-schedule', component: () => import('../pages/learning/MySchedulePage.vue') },
+      { path: 'buoi-hoc/:id', name: 'session', component: () => import('../pages/learning/SessionPage.vue') },
       // Giáo viên soạn nội dung
       ...[
+        ['day-hoc/lich', 'teach-schedule', () => import('../pages/teaching/SchedulePage.vue')],
+        ['day-hoc/nhom', 'teach-groups', () => import('../pages/teaching/GroupsPage.vue')],
         ['day-hoc/lop-hoc', 'teach-classes', () => import('../pages/teaching/ClassesPage.vue')],
         ['day-hoc/lop-hoc/:id', 'teach-class', () => import('../pages/teaching/ClassManagePage.vue')],
         ['day-hoc/bai-hoc', 'teach-lessons', () => import('../pages/teaching/LessonsPage.vue')],

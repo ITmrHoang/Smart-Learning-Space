@@ -18,12 +18,16 @@
       <div v-for="(s, i) in steps" :key="s.key" class="step" :class="`step--${s.kind}`">
         <span class="drag" title="Kéo để đổi thứ tự">⋮⋮</span>
         <span class="num">{{ s.kind === 'milestone' ? '' : stepNumber(i) }}</span>
-        <hui-tag size="sm" :color="s.kind === 'exam' ? 'primary' : s.kind === 'lesson' ? 'success' : 'secondary'">{{ STEP_KIND_LABELS[s.kind] }}</hui-tag>
+        <hui-tag size="sm" :color="KIND_COLORS[s.kind]">{{ STEP_KIND_LABELS[s.kind] }}</hui-tag>
 
         <input v-if="s.kind === 'milestone'" v-model="s.title" class="native-input grow" placeholder="Tên mốc, ví dụ: Tuần 1" @input="dirty = true" />
         <select v-else-if="s.kind === 'lesson'" v-model="s.lessonId" class="native-select grow" @change="dirty = true">
           <option :value="null" disabled>Chọn bài học…</option>
           <option v-for="l in lessons" :key="l.id" :value="l.id">{{ l.title }}{{ l.publishedVersion == null ? ' (chưa xuất bản)' : '' }}</option>
+        </select>
+        <select v-else-if="s.kind === 'session'" v-model="s.sessionId" class="native-select grow" @change="dirty = true">
+          <option :value="null" disabled>Chọn buổi học của lớp học này…</option>
+          <option v-for="x in sessionChoices(s)" :key="x.id" :value="x.id">{{ formatSessionTime(x.startsAt, x.endsAt) }} · {{ x.title }}{{ x.status === 'cancelled' ? ' (đã hủy)' : '' }}</option>
         </select>
         <select v-else v-model="s.examId" class="native-select grow" @change="dirty = true">
           <option :value="null" disabled>Chọn đề…</option>
@@ -33,6 +37,7 @@
         <hui-tag v-if="s.refStatus === 'draft'" size="sm" color="warning">Bài chưa xuất bản</hui-tag>
         <hui-tag v-else-if="s.refStatus === 'empty'" size="sm" color="warning">Đề chưa có câu</hui-tag>
         <hui-tag v-else-if="s.refStatus === 'archived'" size="sm" color="danger">Đã bị ẩn</hui-tag>
+        <hui-tag v-else-if="s.refStatus === 'cancelled'" size="sm" color="danger">Buổi đã hủy</hui-tag>
 
         <label v-if="s.kind === 'exam'" class="small inline">
           Điểm đạt
@@ -54,9 +59,11 @@
       <hui-button size="sm" variant="outline" @hui-click="add('milestone')">+ Mốc</hui-button>
       <hui-button size="sm" variant="outline" @hui-click="add('lesson')">+ Bài học</hui-button>
       <hui-button size="sm" variant="outline" @hui-click="add('exam')">+ Đề ôn tập / kiểm tra</hui-button>
+      <hui-button size="sm" variant="outline" @hui-click="add('session')">+ Buổi học</hui-button>
       <span class="muted small">
         Chưa có bài? <RouterLink :to="{ name: 'teach-lesson', params: { id: 'moi' } }">Soạn bài</RouterLink> ·
-        <RouterLink :to="{ name: 'teach-exam', params: { id: 'moi' } }">Tạo đề</RouterLink>
+        <RouterLink :to="{ name: 'teach-exam', params: { id: 'moi' } }">Tạo đề</RouterLink> ·
+        <RouterLink :to="{ name: 'teach-schedule', query: { classId } }">Xếp lịch buổi học</RouterLink>
       </span>
     </div>
   </div>
@@ -68,8 +75,12 @@ import { onMounted, ref } from 'vue';
 
 import { teachingApi } from '../../api';
 import { formatDateTime } from '../../utils/form';
+import { formatSessionTime } from '../../utils/schedule';
 import { EXAM_KIND_LABELS, STEP_KIND_LABELS } from '../../utils/teaching';
 
+const KIND_COLORS = { exam: 'primary', lesson: 'success', session: 'warning', milestone: 'secondary' };
+
+const DAY = 86_400_000;
 const props = defineProps({ classId: { type: String, required: true } });
 const emit = defineEmits(['published']);
 
@@ -77,6 +88,8 @@ const path = ref(null);
 const steps = ref([]);
 const lessons = ref([]);
 const exams = ref([]);
+/** Buổi học của lớp học này (90 ngày tới, kèm vài ngày trước) */
+const sessions = ref([]);
 const dirty = ref(false);
 const saving = ref(false);
 const publishing = ref(false);
@@ -94,8 +107,17 @@ function stepNumber(i) {
 }
 
 function add(kind) {
-  steps.value.push({ key: ++seq, id: null, kind, title: '', lessonId: null, examId: null, unlock: 'free', passScore: null, refStatus: null });
+  steps.value.push({ key: ++seq, id: null, kind, title: '', lessonId: null, examId: null, sessionId: null, unlock: 'free', passScore: null, refStatus: null });
   dirty.value = true;
+}
+
+/** Buổi học chọn được: buổi của lớp học trong khoảng đã tải + buổi bước đang trỏ tới (có thể đã qua). */
+function sessionChoices(step) {
+  const list = [...sessions.value];
+  if (step.sessionId && !list.some((x) => x.id === step.sessionId)) {
+    list.unshift({ id: step.sessionId, title: step.refTitle ?? 'Buổi học', startsAt: step.startsAt, endsAt: step.startsAt, status: step.refStatus });
+  }
+  return list;
 }
 
 function move(i, d) {
@@ -126,6 +148,7 @@ function payload() {
     title: s.title ?? '',
     lessonId: s.kind === 'lesson' ? s.lessonId : null,
     examId: s.kind === 'exam' ? s.examId : null,
+    sessionId: s.kind === 'session' ? s.sessionId : null,
     unlock: s.unlock,
     passScore: s.kind === 'exam' && s.passScore !== '' && s.passScore != null ? Number(s.passScore) : null,
   }));
@@ -162,13 +185,18 @@ async function publish() {
 }
 
 onMounted(async () => {
-  const [p, ls, es] = await Promise.all([
+  const now = Date.now();
+  const [p, ls, es, ss] = await Promise.all([
     teachingApi.path(props.classId),
     teachingApi.lessons({ pageSize: 100 }).catch(() => ({ items: [] })),
     teachingApi.exams({ pageSize: 100 }).catch(() => ({ items: [] })),
+    teachingApi
+      .sessions({ classId: props.classId, from: new Date(now - 3 * DAY).toISOString(), to: new Date(now + 90 * DAY).toISOString() })
+      .catch(() => []),
   ]);
   lessons.value = ls.items;
   exams.value = es.items;
+  sessions.value = ss;
   apply(p);
 });
 </script>

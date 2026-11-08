@@ -31,6 +31,22 @@
         </div>
       </section>
 
+      <section v-if="learn && upcoming.length" class="panel stack">
+        <div class="row between">
+          <h2 style="margin: 0">Buổi học sắp tới</h2>
+          <RouterLink to="/lich-hoc">Xem lịch học →</RouterLink>
+        </div>
+        <ul class="clean-list">
+          <li v-for="x in upcoming" :key="x.id" class="row between">
+            <span>
+              <RouterLink :to="{ name: 'session', params: { id: x.id } }">{{ x.title }}</RouterLink>
+              <span class="muted small"> · {{ formatSessionTime(x.startsAt, x.endsAt) }}</span>
+            </span>
+            <hui-tag size="sm" :color="PHASE_COLORS[sessionPhase(x)]">{{ PHASE_LABELS[sessionPhase(x)] }}</hui-tag>
+          </li>
+        </ul>
+      </section>
+
       <!-- Đang học: lộ trình có trạng thái -->
       <section v-if="learn" class="panel stack">
         <div class="row between">
@@ -46,14 +62,16 @@
           <li v-for="s in learn.steps" :key="s.id" :class="[`kind-${s.kind}`, `st-${s.status}`]">
             <h3 v-if="s.kind === 'milestone'">{{ s.title }}</h3>
             <template v-else>
-              <span class="icon" :title="STEP_STATUS_LABELS[s.status]">{{ s.status === 'done' ? '✓' : s.status === 'locked' ? '🔒' : s.kind === 'exam' ? '✎' : '▶' }}</span>
+              <span class="icon" :title="STEP_STATUS_LABELS[s.status]">{{ s.status === 'done' ? '✓' : s.status === 'locked' ? '🔒' : s.kind === 'exam' ? '✎' : s.kind === 'session' ? '◷' : '▶' }}</span>
               <div class="body">
                 <div class="row">
                   <b>{{ s.title }}</b>
                   <hui-tag v-if="s.kind === 'exam'" size="sm" :color="EXAM_KIND_COLORS[s.examKind]">{{ EXAM_KIND_LABELS[s.examKind] }}</hui-tag>
+                  <hui-tag v-if="s.kind === 'session'" size="sm" :color="PHASE_COLORS[phaseOf(s)]">{{ PHASE_LABELS[phaseOf(s)] }}</hui-tag>
                 </div>
                 <span class="muted small">
                   <template v-if="s.kind === 'lesson'">Bài học{{ s.durationMinutes ? ` · ${s.durationMinutes} phút` : '' }}</template>
+                  <template v-else-if="s.kind === 'session'">Buổi học · {{ formatSessionTime(s.startsAt, s.endsAt) }}<template v-if="s.status === 'done'"> · đã điểm danh</template></template>
                   <template v-else>
                     {{ s.itemCount }} câu{{ s.timeLimitMinutes ? ` · ${s.timeLimitMinutes} phút` : '' }}
                     <template v-if="s.passScore != null"> · cần đạt {{ formatScore(s.passScore) }} điểm</template>
@@ -72,6 +90,9 @@
                 <template v-if="s.status !== 'locked'">
                   <RouterLink v-if="s.kind === 'lesson'" :to="{ name: 'lesson-view', params: { id: detail.id, stepId: s.id } }">
                     {{ s.status === 'done' ? 'Xem lại' : 'Học' }}
+                  </RouterLink>
+                  <RouterLink v-else-if="s.kind === 'session'" :to="{ name: 'session', params: { id: s.sessionId } }">
+                    {{ ['live', 'soon'].includes(phaseOf(s)) ? 'Vào học' : 'Chi tiết' }}
                   </RouterLink>
                   <template v-else>
                     <hui-button size="sm" :loading="starting === s.id" @hui-click="startExam(s)">
@@ -110,9 +131,10 @@ import { message } from '@itmrhoang/h-ui/hui-message';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { learnApi } from '../../api';
+import { learnApi, sessionApi } from '../../api';
 import { formatDateTime } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
+import { PHASE_COLORS, PHASE_LABELS, formatSessionTime, sessionPhase } from '../../utils/schedule';
 import {
   EXAM_KIND_COLORS,
   EXAM_KIND_LABELS,
@@ -133,6 +155,9 @@ const error = ref('');
 const enrolling = ref(false);
 const starting = ref('');
 const attemptsOf = reactive({});
+/** Buổi học sắp tới của lớp học (30 ngày) */
+const upcoming = ref([]);
+const phaseOf = (s) => sessionPhase({ status: s.sessionStatus, startsAt: s.startsAt, endsAt: s.endsAt });
 
 const canLearn = computed(() => detail.value?.isOwner || detail.value?.myStatus === 'active');
 const subjectName = computed(() => master.value?.subjects.find((s) => s.id === detail.value?.subjectId)?.name ?? '');
@@ -142,6 +167,16 @@ async function load() {
   try {
     detail.value = await learnApi.detail(route.params.id);
     learn.value = canLearn.value ? await learnApi.learn(route.params.id) : null;
+    if (learn.value && !detail.value.isOwner) {
+      const now = Date.now();
+      upcoming.value = (
+        await sessionApi
+          .mine({ classId: route.params.id, from: new Date(now - 3 * 3_600_000).toISOString(), to: new Date(now + 30 * 86_400_000).toISOString() })
+          .catch(() => [])
+      )
+        .filter((x) => x.status !== 'cancelled' && new Date(x.endsAt) > now)
+        .slice(0, 5);
+    }
   } catch (e) {
     error.value = e.message;
   }

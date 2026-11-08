@@ -24,6 +24,7 @@
       <header class="topbar">
         <hui-button class="menu-toggle" variant="text" @hui-click="menuOpen = !menuOpen">Menu</hui-button>
         <div class="spacer" />
+        <NotificationBell />
         <div v-if="auth.user" class="user">
           <span class="user-name">{{ auth.user.fullName }}</span>
           <hui-tag size="sm" :color="ROLE_COLORS[auth.user.role]">{{ ROLE_LABELS[auth.user.role] }}</hui-tag>
@@ -41,6 +42,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
+import NotificationBell from '../components/NotificationBell.vue';
 import { useAuthStore } from '../stores/auth';
 import { ROLE_COLORS, ROLE_LABELS, visibleMenu } from '../utils/permissions';
 

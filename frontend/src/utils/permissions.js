@@ -31,15 +31,18 @@ export const MENU = [
     items: [
       { to: '/lop-hoc-cua-toi', label: 'Lớp học của tôi' },
       { to: '/kham-pha', label: 'Tìm lớp học' },
+      { to: '/lich-hoc', label: 'Lịch học' },
     ],
   },
   {
     title: 'Dạy học',
     items: [
+      { to: '/day-hoc/lich', label: 'Lịch dạy', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/lop-hoc', label: 'Lớp học', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/bai-hoc', label: 'Bài học', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/cau-hoi', label: 'Ngân hàng câu hỏi', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/de', label: 'Đề ôn tập / kiểm tra', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/nhom', label: 'Nhóm học sinh', permission: P.TEACHING_MANAGE },
     ],
   },
   {

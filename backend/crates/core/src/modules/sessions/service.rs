@@ -401,7 +401,7 @@ async fn can_access(ctx: &AppContext, actor: &Actor, s: &SessionRow) -> AppResul
 
 pub async fn detail(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<SessionDetail> {
     let s = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
-    let (allowed, _) = can_access(ctx, actor, &s).await?;
+    let (allowed, invited) = can_access(ctx, actor, &s).await?;
     if !allowed {
         return Err(not_found());
     }
@@ -453,6 +453,7 @@ pub async fn detail(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<Sess
         join_opens_at,
         can_join,
         attended: mine.is_some_and(|a| a.attended),
+        invited,
     })
 }
 

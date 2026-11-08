@@ -92,10 +92,10 @@ Migration `20261106000002_lessons_classes_paths.sql` (`lessons`, `lesson_tags`, 
 
 | Module | Nội dung | Trạng thái |
 |---|---|---|
-| **M13** | Nhóm học sinh: giáo viên tạo nhóm từ học sinh các lớp học của mình (một lớp hoặc nhiều lớp); dùng để mời buổi học | Đang làm |
-| **M14** | Lịch & buổi học kiểu Google Meet: buổi lẻ hoặc lặp hằng tuần (chọn thứ, ngày kết thúc); mời lớp học / nhóm / từng học sinh; ai được vào (người được mời · thành viên lớp · mọi tài khoản); link họp; bài sẽ dạy; chặn trùng lịch giáo viên, cảnh báo học sinh trùng lịch; sửa / dời / hủy "chỉ buổi này" hoặc "buổi này và các buổi sau"; email lời mời kèm `.ics` (cập nhật / hủy dùng cùng `UID`, tăng `SEQUENCE`); học sinh trả lời Tham gia / Không; "Vào học" mở trước 10 phút, ghi điểm danh; giáo viên điểm danh tay | Đang làm |
-| **M15** | Thông báo trong app (chuông, số chưa đọc) + nhắc lịch qua email và trong app trước giờ học (15 phút / 1 giờ / 1 ngày); thông báo khi được mời / dời / hủy buổi, được duyệt vào lớp, lộ trình có bản mới | Đang làm |
-| **M16** | Buổi học là một bước của lộ trình (xong khi có điểm danh); trang lớp học có "Buổi học sắp tới"; trang chủ có lịch 7 ngày tới + học tiếp; H-UI thêm `hui-timetable` (lịch tuần / ngày có khung giờ, kéo chọn khung giờ để tạo buổi) | Đang làm |
+| **M13** | Nhóm học sinh: giáo viên tạo nhóm từ học sinh các lớp học của mình (một lớp hoặc nhiều lớp); dùng để mời buổi học | ✅ Xong (2026-11-08) |
+| **M14** | Lịch & buổi học kiểu Google Meet: buổi lẻ hoặc lặp hằng tuần (chọn thứ, ngày kết thúc); mời lớp học / nhóm / từng học sinh; ai được vào (người được mời · thành viên lớp · mọi tài khoản); link họp; bài sẽ dạy; chặn trùng lịch giáo viên, cảnh báo học sinh trùng lịch; sửa / dời / hủy "chỉ buổi này" hoặc "buổi này và các buổi sau"; email lời mời kèm `.ics` (cập nhật / hủy dùng cùng `UID`, tăng `SEQUENCE`); học sinh trả lời Tham gia / Không; "Vào học" mở trước 10 phút, ghi điểm danh; giáo viên điểm danh tay | ✅ Xong (2026-11-08) |
+| **M15** | Thông báo trong app (chuông, số chưa đọc) + nhắc lịch qua email và trong app trước giờ học (15 phút / 1 giờ / 1 ngày); thông báo khi được mời / dời / hủy buổi, được duyệt vào lớp, lộ trình có bản mới | ✅ Xong (2026-11-08) |
+| **M16** | Buổi học là một bước của lộ trình (xong khi có điểm danh); trang lớp học có "Buổi học sắp tới"; trang chủ có lịch 7 ngày tới + học tiếp; H-UI thêm `hui-timetable` (lịch tuần / ngày có khung giờ, kéo chọn khung giờ để tạo buổi) | ✅ Xong (2026-11-08) |
 
 **Để sau:** bài tập về nhà nộp ảnh / PDF (cần dựng Garage để lưu file — làm cùng upload video), lộ trình riêng cho nhóm / học sinh, báo cáo email cho phụ huynh, đặt lịch học kèm 1-1 (D15), đồng bộ hai chiều Google Calendar, thông báo realtime qua WebSocket (hiện hỏi lại mỗi 60 giây).
 
@@ -104,6 +104,48 @@ Migration `20261106000002_lessons_classes_paths.sql` (`lessons`, `lesson_tags`, 
 - Người được mời = học sinh đang học của lớp được mời ∪ thành viên nhóm được mời ∪ học sinh được mời riêng — tính lúc xem, nên học sinh vào lớp sau vẫn thấy các buổi sắp tới. Email chỉ gửi cho người được mời tại thời điểm tạo / sửa.
 - Nhắc lịch: tiến trình `api` chạy vòng 60 giây, "nhận" buổi cần nhắc bằng `UPDATE … WHERE reminded_at IS NULL RETURNING` nên chạy nhiều instance cũng không gửi trùng.
 - File `.ics` tự sinh theo RFC 5545 (không thêm crate): `METHOD:REQUEST` / `METHOD:CANCEL`, `UID` = `{id buổi}@smart-learning-space`, `SEQUENCE` tăng mỗi lần dời / hủy.
+
+### Kết quả đợt 3 (2026-11-08)
+
+Migration `20261108000001_groups_sessions_notifications.sql` (`student_groups`, `student_group_members`, `schedules`, `sessions`, `session_invitees`, `session_lessons`, `session_attendees`, `notifications`; `path_steps` thêm loại `session` + cột `session_id`). Module backend: `core/src/modules/{groups, sessions, notifications}` (`sessions/time.rs` giờ VN + lịch lặp, `sessions/ics.rs` sinh `.ics`); email có file đính kèm (`jobs::Attachment`, worker gửi email nhiều phần).
+
+| API giáo viên (`/api/teaching`) | Mô tả |
+|---|---|
+| `students` (GET `?classId=&q=`) | Học sinh đang học trong các lớp học của mình (để chọn vào nhóm / mời) |
+| `groups` (GET, POST) · `groups/{id}` (GET, PUT, DELETE) | Nhóm học sinh |
+| `sessions` (GET `?from=&to=&classId=`, tối đa 93 ngày; POST, có `repeat: { weekdays, until }`) | Lịch dạy, tạo buổi lẻ / lặp → `{ sessions, studentConflicts }` |
+| `sessions/{id}` (PUT `{…, scope: this\|following}`) · `sessions/{id}/cancel` (`{scope}`) · `sessions/{id}/attendance` (PUT `{userId, attended}`) | Sửa / dời / hủy, điểm danh tay |
+
+| API mọi tài khoản | Mô tả |
+|---|---|
+| `GET /api/my/sessions?from=&to=&classId=` | Lịch học (buổi được mời, kèm trả lời của mình) |
+| `GET /api/sessions/{id}` | Chi tiết buổi; giáo viên thêm danh sách mời + học sinh / trả lời / điểm danh; có `canJoin`, `joinOpensAt`, `invited`, `attended` |
+| `POST /api/sessions/{id}/rsvp {response: yes\|no}` · `POST /api/sessions/{id}/join` | Trả lời tham gia; "Vào học" (trả link họp, ghi điểm danh) |
+| `GET /api/notifications?unread=&page=` · `GET …/unread-count` · `POST …/read-all` · `POST …/{id}/read` | Chuông thông báo |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Trùng lịch | Giáo viên trùng giờ với buổi khác của mình → chặn (`409 SESSION_CONFLICT`); học sinh trùng → vẫn tạo, trả `studentConflicts` để giao diện cảnh báo |
+| Sửa "buổi này và các buổi sau" | Dời mọi buổi sau cùng một khoảng chênh giờ, áp nội dung mới; buổi đã hủy không đổi; mỗi lần dời tăng `SEQUENCE` và gửi lại `.ics` |
+| Nhắc lịch | Trước giờ học `remindMinutes` (0 = không nhắc); đổi giờ thì nhắc lại; email nhắc không kèm `.ics` (đã có từ lời mời) |
+| Bước "buổi học" | Chỉ chọn buổi của chính lớp học đó; xong khi học sinh được điểm danh (tự động khi bấm "Vào học", hoặc giáo viên đánh dấu) |
+| Giờ trên giao diện | Hiển thị theo giờ của máy (người dùng ở Việt Nam = UTC+7, trùng giờ backend dùng cho lịch lặp và email) |
+| "Vào học" | Là link `<a target="_blank">` tới phòng họp ngoài (không bị chặn pop-up), đồng thời gọi `join` để điểm danh; trang tự mở nút khi tới giờ |
+| Chuông | Hỏi số chưa đọc mỗi 60 giây khi tab đang mở + khi quay lại tab; danh sách trong `hui-drawer`, bấm thông báo → đánh dấu đã đọc + mở link |
+| H-UI mới | `hui-timetable` (lịch tuần / ngày có khung giờ: sự kiện chồng giờ chia cột, vạch giờ hiện tại, kéo chọn khung giờ → `hui-slot-select`, đổi tuần → `hui-range-change`); icon `bell` đăng ký trong app bằng `registerIcon` |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 46 / 46 đạt (thêm: lịch lặp theo giờ VN, ngày đầu không thuộc thứ đã chọn, quá 200 buổi, định dạng giờ VN, `.ics` escape + gập dòng 75 byte, hủy dùng `METHOD:CANCEL`) |
+| Backend integration test | 84 / 84 đạt — thêm `schedule` 5: nhóm học sinh (chỉ học sinh của mình); tạo buổi mời lớp học → email + `.ics`, học sinh thấy trên lịch, người ngoài 404, học sinh vào lớp sau vẫn thấy, quyền "mọi tài khoản"; lịch lặp + trùng lịch + sửa / hủy theo phạm vi (`SEQUENCE` tăng); trả lời, "Vào học" chưa mở / đã mở, điểm danh, nhắc lịch không gửi trùng; bước buổi học trong lộ trình + thông báo duyệt / thêm vào lớp / lộ trình mới |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 37 / 37 đạt (thêm giờ máy ↔ ISO, thứ trong tuần, định dạng giờ buổi, trạng thái buổi theo thời điểm, màu sự kiện trên lịch, gộp danh sách, menu Lịch học / Lịch dạy / Nhóm học sinh); `npm run build` đạt |
+| H-UI | 160 unit test (thêm 12 cho `hui-timetable`) + 5 story test `hui-timetable` đạt; `npm run build`, `build:cdn`, `check-cdn`, `check:types` đạt. Sửa luôn trang kiểm tra CDN chưa nạp nhóm `learning` (lỗi từ đợt 2) |
+| Trình duyệt | Giáo viên: Lịch dạy (tuần, vạch giờ hiện tại, sang tuần sau tự cuộn tới buổi đầu tiên), **kéo chọn** 14:00 thứ Tư → form điền sẵn giờ, chọn lớp học tự mời cả lớp, lặp thứ Tư + thứ Sáu 8 tuần → "Đã tạo 16 buổi học"; sửa thời lượng "buổi này và các buổi sau" → cập nhật 16 buổi, email gửi lại `.ics` 16 sự kiện `SEQUENCE:1`; trang buổi học có danh sách học sinh / trả lời / điểm danh; nhóm học sinh sửa + lưu; lộ trình có bước "Buổi học". Học sinh: chuông 6 thông báo (mời, đổi giờ, nhắc lịch, lộ trình mới), bấm thông báo nhắc lịch → buổi sắp bắt đầu → "Vào học" → "Đã điểm danh" → bước buổi học trong lộ trình thành "đã xong" (tiến độ 3/4); trả lời "Tham gia"; trang chủ "Lịch 7 ngày tới" + "Học tiếp"; Lịch học trên điện thoại (375px) tự xem theo ngày, không tràn ngang |
+
+**Dữ liệu thử thêm trong DB dev:** nhóm "Nhóm ôn thi chuyên" (có `hs.thu`), buổi "Chữa đề kiểm tra chương 2" (8/11, là bước 4 của lộ trình, `hs.thu` đã điểm danh), lịch lặp "Ôn thi vào 10 — Hệ phương trình" (thứ Ba / thứ Năm 19:30, 8 buổi) và "Học kèm: phương trình bậc hai" (thứ Tư / thứ Sáu 14:00–16:00, 16 buổi).
 
 ### M6 — SSO
 

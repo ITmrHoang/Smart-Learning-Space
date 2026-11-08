@@ -38,7 +38,7 @@ export const SCORING_LABELS = {
   per_question: 'Đúng hết mới có điểm',
   thpt_true_false: 'Đúng / sai theo thang THPT (0,1 / 0,25 / 0,5 / 1)',
 };
-export const STEP_KIND_LABELS = { milestone: 'Mốc', lesson: 'Bài học', exam: 'Đề' };
+export const STEP_KIND_LABELS = { milestone: 'Mốc', lesson: 'Bài học', exam: 'Đề', session: 'Buổi học' };
 export const STEP_STATUS_LABELS = { done: 'Đã xong', available: 'Đang mở', locked: 'Chưa mở' };
 export const STEP_STATUS_COLORS = { done: 'success', available: 'info', locked: 'secondary' };
 
