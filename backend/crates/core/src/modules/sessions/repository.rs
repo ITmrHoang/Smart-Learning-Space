@@ -400,3 +400,29 @@ pub async fn attended_pairs<'e, E: PgExecutor<'e>>(
     .fetch_all(db)
     .await
 }
+
+/// Với từng học sinh: số buổi (không hủy, đã kết thúc trong khoảng) mà học sinh được mời, và số buổi có mặt.
+/// `class_id = None` → mọi lớp học.
+pub async fn attendance_stats<'e, E: PgExecutor<'e>>(
+    db: E,
+    class_id: Option<Uuid>,
+    user_ids: &[Uuid],
+    from: Option<DateTime<Utc>>,
+    to: DateTime<Utc>,
+) -> sqlx::Result<Vec<(Uuid, i64, i64)>> {
+    sqlx::query_as::<_, (Uuid, i64, i64)>(crate::sql!(
+        "SELECT u.id, count(s.id), count(s.id) FILTER (WHERE a.attended) \
+         FROM unnest($2::uuid[]) AS u(id) \
+         LEFT JOIN sessions s ON s.status = 'scheduled' AND s.ends_at <= $4 \
+           AND ($3::timestamptz IS NULL OR s.starts_at >= $3) AND ($1::uuid IS NULL OR s.class_id = $1) AND {} \
+         LEFT JOIN session_attendees a ON a.session_id = s.id AND a.user_id = u.id \
+         GROUP BY u.id",
+        invited_cond!("u.id")
+    ))
+    .bind(class_id)
+    .bind(user_ids)
+    .bind(from)
+    .bind(to)
+    .fetch_all(db)
+    .await
+}

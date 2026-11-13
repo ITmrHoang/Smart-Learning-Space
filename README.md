@@ -43,7 +43,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **lapin** | Kết nối RabbitMQ: API đẩy việc vào hàng đợi, worker nhận việc ra làm |
 | **lettre** (rustls) | Worker gửi email qua SMTP có mã hóa TLS — STARTTLS hoặc TLS, đặt bằng `SMTP_TLS` (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên, lời mời / nhắc lịch buổi học). Lời mời kèm file lịch `.ics` (chuẩn RFC 5545, tự sinh) để học sinh thêm vào Google Calendar / Outlook / điện thoại; dời / hủy buổi thì lịch trong máy tự cập nhật |
 | **deunicode** | Bỏ dấu tiếng Việt khi tạo slug / gợi ý username (`Trần Thị` → `tran.thi`) |
-| **calamine** / **rust_xlsxwriter** | Đọc file Excel câu hỏi giáo viên tải lên / tạo file Excel mẫu để giáo viên điền |
+| **calamine** / **rust_xlsxwriter** | Đọc file Excel câu hỏi giáo viên tải lên / tạo file Excel mẫu để giáo viên điền, xuất bảng điểm lớp học |
 | **thiserror** / **anyhow** | Khai báo lỗi có kiểu trong thư viện / gom lỗi gọn khi khởi động chương trình |
 | **tracing** / **tracing-subscriber** | Ghi log có cấu trúc (kèm `request_id`), đổi sang JSON khi chạy production (`LOG_FORMAT=json`) |
 | **dotenvy** | Nạp cấu hình từ file `backend/.env` khi dev |
@@ -59,6 +59,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **[H-UI](../HUI)** (`@itmrhoang/h-ui`) | Thư viện web component của dự án (nút, ô nhập, bảng, modal…); link bản build ở máy (`file:../../HUI`) |
 | `hui-markdown` + `hui-math` (trong H-UI) | Hiển thị nội dung bài học / câu hỏi: Markdown + công thức LaTeX vẽ bằng MathML gốc của trình duyệt (không cần KaTeX / MathJax) |
 | `hui-timetable` (trong H-UI) | Lịch tuần / ngày có khung giờ cho Lịch dạy / Lịch học: buổi chồng giờ chia cột, vạch giờ hiện tại, kéo chọn khung giờ trống để tạo buổi học |
+| `hui-flashcard` (trong H-UI) | Thẻ ghi nhớ lật được (Markdown + công thức), 4 nút tự chấm Quên / Khó / Được / Dễ cho ôn tập lặp lại ngắt quãng |
 | **Vitest** + **jsdom** | Unit test cho API client, kiểm tra quyền, tiện ích SSO… |
 
 ### Hạ tầng (Docker, file `deploy/docker-compose.dev.yml`)

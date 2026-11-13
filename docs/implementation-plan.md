@@ -147,6 +147,60 @@ Migration `20261108000001_groups_sessions_notifications.sql` (`student_groups`, 
 
 **Dữ liệu thử thêm trong DB dev:** nhóm "Nhóm ôn thi chuyên" (có `hs.thu`), buổi "Chữa đề kiểm tra chương 2" (8/11, là bước 4 của lộ trình, `hs.thu` đã điểm danh), lịch lặp "Ôn thi vào 10 — Hệ phương trình" (thứ Ba / thứ Năm 19:30, 8 buổi) và "Học kèm: phương trình bậc hai" (thứ Tư / thứ Sáu 14:00–16:00, 16 buổi).
 
+## Đợt 4 — Báo cáo, hỏi đáp, thẻ ghi nhớ, phụ huynh (bắt đầu 2026-11-13)
+
+> Yêu cầu: "làm tiếp các tính năng". Live (LiveKit) + bảng thông minh (G5) vẫn để sau: phiên khác đang làm phần tách service / hàng đợi / triển khai nhiều máy — nền cho live và AI. Đợt này chỉ làm phần không cần hạ tầng mới (không Garage, không sửa worker, không thêm crate).
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M17** | Báo cáo lớp học cho giáo viên (D11): bảng điểm (điểm cao nhất từng đề), tỷ lệ điểm theo danh mục và mức độ, câu sai nhiều nhất, học sinh cần chú ý (tiến độ thấp / điểm thấp / lâu không học), xuất bảng điểm Excel | ✅ Xong (2026-11-13) |
+| **M18** | Hỏi đáp theo bài (D3): học sinh hỏi trong lớp học (gắn với bước bài / đề), giáo viên và bạn cùng lớp trả lời bằng Markdown + công thức; giáo viên ghim, chọn câu trả lời đúng, ẩn nội dung; báo vi phạm và giáo viên xử lý (D7, phần hỏi đáp); thông báo khi có câu hỏi / trả lời | ✅ Xong (2026-11-13) |
+| **M19** | Thẻ ghi nhớ ôn tập lặp lại ngắt quãng: giáo viên soạn bộ thẻ (Markdown + công thức) hoặc tạo từ câu hỏi; bộ thẻ là một bước của lộ trình; học sinh ôn, tự chấm Quên / Khó / Được / Dễ, hệ thống hẹn ngày ôn lại; trang "Ôn tập hôm nay"; H-UI thêm `hui-flashcard` | ✅ Xong (2026-11-13) |
+| **M20** | Phụ huynh (analyst.md "Thông tin phụ huynh"): học sinh khai email phụ huynh → phụ huynh bấm link xác nhận đồng ý; báo cáo tuần tự gửi tối Chủ nhật (tiến độ, điểm, buổi học có mặt / vắng, thẻ đã ôn); giáo viên gửi ngay kèm nhận xét; link hủy nhận; lịch sử gửi | ✅ Xong (2026-11-13) |
+
+**Để sau:** live + bảng thông minh (G5); bài tập nộp ảnh / PDF và ảnh trong hỏi đáp (cần Garage); email báo cáo dạng HTML (worker đã có `mailer.rs` từ phiên triển khai — thêm phần HTML sau); lộ trình riêng cho nhóm / học sinh; đặt lịch học kèm 1-1 (D15); trang công khai có SEO (D14).
+
+### Kết quả đợt 4 (2026-11-13)
+
+Migration `20261113000001_reports_qa_flashcards_guardians.sql` (`class_threads`, `thread_posts`, `content_reports`, `decks`, `cards`, `card_reviews`, `card_review_log`, `student_guardians`, `report_deliveries`; `path_steps` thêm loại `deck` + cột `deck_id`). Module backend: `classes/report.rs`, `discussions`, `flashcards` (`srs.rs` lịch ôn), `guardians` (`report.rs` nội dung báo cáo); controller `api/src/controllers/community.rs`. Báo cáo tuần chạy chung vòng 60 giây với nhắc lịch trong `api`.
+
+| API giáo viên (`/api/teaching`) | Mô tả |
+|---|---|
+| `classes/{id}/report` · `classes/{id}/report.xlsx` | Báo cáo lớp học (JSON) + bảng điểm Excel 3 sheet (Bảng điểm · Theo danh mục · Câu sai nhiều) |
+| `classes/{id}/content-reports` (GET `?status=open\|all`) · `content-reports/{id}/resolve` (`{action: hide\|dismiss}`) | Báo vi phạm trong hỏi đáp |
+| `classes/{id}/students/{userId}/guardian-report` (POST `{note}`) | Gửi ngay báo cáo 7 ngày của lớp học cho phụ huynh đã xác nhận |
+| `decks` (GET `?q=&subjectId=`, POST) · `decks/{id}` (GET, PUT, DELETE = ẩn) · `decks/{id}/from-questions` (`{questionIds}`) | Bộ thẻ ghi nhớ |
+
+| API học sinh / mọi tài khoản | Mô tả |
+|---|---|
+| `classes/{id}/threads` (GET `?stepId=&status=all\|open\|answered\|mine&q=`, POST) · `classes/{id}/qa-counts` | Hỏi đáp của lớp học |
+| `threads/{id}` (GET, PUT, DELETE) · `threads/{id}/posts` · `threads/{id}/moderate` (`pin\|unpin\|hide\|unhide`) · `posts/{id}` (PUT, DELETE) · `posts/{id}/moderate` (`accept\|unaccept\|hide\|unhide`) · `content-reports` (POST) | Câu hỏi, trả lời, quản lý, báo vi phạm |
+| `classes/{id}/steps/{stepId}/deck` · `classes/{id}/steps/{stepId}/reviews` (`{cardId, rating: again\|hard\|good\|easy}`) · `my/reviews` | Ôn thẻ trong lộ trình, "Ôn tập hôm nay" |
+| `my/guardians` (GET, POST) · `my/guardians/{id}` (PUT, DELETE) · `my/guardians/{id}/resend` | Học sinh khai phụ huynh |
+| `guardians/consent` (GET `?token=`, POST `{token, accept}`) · `guardians/subscription` (GET `?token=`) · `guardians/unsubscribe` · `guardians/subscribe` (`{token}`) | Phụ huynh bấm link trong email — **không cần đăng nhập** |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Báo cáo | Chỉ tính bài đã nộp trong lớp học (bỏ làm thử). Tỷ lệ điểm danh mục / mức độ = tổng điểm đạt / tổng điểm tối đa (câu đúng sai THPT tính theo phần điểm). "Cần chú ý": lâu không học (≥ 7 ngày không có hoạt động: học bài, làm đề, vào buổi học, ôn thẻ), tiến độ < 30 % sau 7 ngày vào lớp, điểm trung bình các đề < 50 % |
+| Hỏi đáp | Giáo viên chủ lớp + học sinh đang học; câu hỏi có thể gắn một bước của lộ trình. Ẩn câu hỏi → học sinh không thấy; ẩn trả lời → hiện "đã bị ẩn". Người hỏi hoặc giáo viên chọn câu trả lời đúng. Người hỏi chỉ xóa được câu hỏi chưa có trả lời. Báo vi phạm: không báo nội dung của mình, mỗi người báo một lần; giáo viên ẩn hoặc bỏ qua (đóng mọi báo cáo của nội dung đó). Chưa có ảnh (cần Garage) |
+| Thẻ ghi nhớ | Lịch ôn kiểu SM-2 rút gọn: Quên → học lại sau 10 phút; Khó ×1,2; Được 1 → 3 ngày → × độ dễ; Dễ 4 ngày → × độ dễ × 1,3; độ dễ 1,3–3,0; tối đa 365 ngày. Lịch ôn gắn với (học sinh, thẻ) nên một bộ thẻ dùng ở nhiều lớp học vẫn chung lịch. Sửa thẻ giữ ID → giữ lịch ôn. Bước "thẻ ghi nhớ" xong khi đã ôn mọi thẻ ít nhất một lần; bộ thẻ trống / đã ẩn không xuất bản được. Thẻ từ câu hỏi: mặt trước = đề + phương án, mặt sau = đáp án đúng + lời giải |
+| Phụ huynh | Tối đa 3 người; email không trùng, không phải email của chính học sinh. Link xác nhận hạn 14 ngày (lưu hash), gửi lại tối đa 1 lần / 10 phút. Link hủy nhận dùng token riêng của từng phụ huynh (chỉ hủy / nhận lại được). Báo cáo tuần gửi từ 19h tối Chủ nhật (giờ VN), kỳ từ 0h thứ Hai; mỗi phụ huynh một lần / tuần nhờ chỉ mục duy nhất trên `report_deliveries` (chạy nhiều instance không gửi trùng). Email dạng chữ |
+| Giao diện | Trang quản lý lớp học thêm tab **Báo cáo** và **Hỏi đáp** (`?tab=bao-cao` / `?tab=hoi-dap`, số câu chưa giải đáp / báo vi phạm trên tab); trang lớp học của học sinh có khu Hỏi đáp (`#hoi-dap`), bài học có nút "Hỏi về bài này"; trang ôn thẻ dùng `hui-flashcard` (phím Space lật, 1–4 chấm; "Quên" gặp lại cuối lượt); Hồ sơ của học sinh có mục Phụ huynh; trang chủ hiện số thẻ cần ôn |
+| H-UI mới | `hui-flashcard` (thẻ lật 3D, Markdown + công thức, 4 nút chấm kèm gợi ý, `reset()` về mặt trước tức thì để không lộ đáp án thẻ kế) |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 56 / 56 đạt (thêm: lịch ôn SM-2 — thẻ mới, nhớ liên tiếp, quên, giới hạn; mặt sau thẻ từ câu hỏi; cờ cần chú ý; tỷ lệ / cắt chuỗi; kỳ báo cáo tuần; nội dung email báo cáo; số kiểu Việt Nam) |
+| Backend integration test | 88 / 88 đạt — thêm `community` 4: báo cáo lớp học (điểm, danh mục, mức độ, câu sai, cờ điểm thấp, quyền, file Excel); hỏi đáp (gắn bước, thông báo câu hỏi / trả lời / báo vi phạm, chọn câu trả lời đúng, lọc, quyền, ẩn qua xử lý báo cáo, ẩn trả lời, xóa); thẻ ghi nhớ (soạn, thêm từ câu hỏi, giữ ID khi sửa, bộ trống không xuất bản được, lịch ôn, bước xong, "Ôn tập hôm nay", giáo viên xem thử không lưu, tiến độ cả lớp); phụ huynh (khai, trùng / email của mình / quá sớm / quá 3, xác nhận, gửi ngay kèm nhận xét, báo cáo tuần đúng một lần, hủy nhận / nhận lại, từ chối) |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 40 / 40 đạt (thêm định dạng khoảng ôn, hàng đợi ôn, "Quên" học lại cuối lượt, menu Ôn tập hôm nay / Thẻ ghi nhớ); `npm run build` đạt |
+| H-UI | 163 unit test + 2 story test `hui-flashcard` đạt; `npm run build`, `build:cdn`, `check-cdn`, `check:types` đạt |
+| Trình duyệt | Giáo viên: tab Báo cáo (4 chỉ số, bảng điểm, mức độ, câu sai nhiều), gửi báo cáo phụ huynh kèm nhận xét → email trong Mailpit đúng nội dung + link hủy nhận; tab Hỏi đáp (đếm câu chưa giải đáp), trang câu hỏi có công thức ở tiêu đề / nội dung, trả lời được; soạn bộ thẻ, xem thử thẻ lật. Học sinh: trang chủ "4 thẻ ghi nhớ cần ôn", Ôn tập hôm nay → ôn thẻ (lật bằng click, chấm bằng phím 3, thẻ kế hiện ngay mặt trước), trang lớp học có bước thẻ "3 thẻ cần ôn" + Hỏi đáp (cuộn tới `#hoi-dap`); Hồ sơ → thêm phụ huynh → mở link xác nhận (trang công khai) → đồng ý; trang hủy nhận hiển thị đúng |
+
+**Dữ liệu thử thêm trong DB dev:** bộ thẻ "Căn bậc hai — ghi nhớ nhanh" (6 thẻ, là bước cuối của lộ trình "Toán 9"), 2 câu hỏi trong hỏi đáp (1 đã giải đáp), phụ huynh `bo.thu@example.com` và `me.thu@example.com` của `hs.thu` (đã xác nhận).
+
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)
 
 Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".

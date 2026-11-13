@@ -11,5 +11,6 @@
 pub mod dto;
 pub mod model;
 pub mod path;
+pub mod report;
 pub mod repository;
 pub mod service;

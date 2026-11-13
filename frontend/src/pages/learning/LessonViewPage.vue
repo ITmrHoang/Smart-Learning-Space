@@ -30,7 +30,22 @@
         </div>
       </div>
       <p class="muted small">Phiên bản {{ data.lesson.version }} · cập nhật {{ formatDateTime(data.lesson.publishedAt) }}</p>
+      <div class="panel row between ask">
+        <span>Chỗ nào chưa hiểu? Hỏi giáo viên và các bạn trong lớp học.</span>
+        <span class="row">
+          <RouterLink :to="{ name: 'class', params: { id: route.params.id }, hash: '#hoi-dap' }" class="small">Xem hỏi đáp</RouterLink>
+          <hui-button size="sm" @hui-click="askOpen = true">Hỏi về bài này</hui-button>
+        </span>
+      </div>
     </template>
+    <AskQuestionModal
+      v-if="data"
+      v-model:open="askOpen"
+      :classId="route.params.id"
+      :steps="[{ id: data.step.id, title: data.step.title }]"
+      :stepId="data.step.id"
+      @saved="(t) => router.push({ name: 'thread', params: { id: route.params.id, threadId: t.id } })"
+    />
   </div>
 </template>
 
@@ -40,6 +55,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { learnApi } from '../../api';
+import AskQuestionModal from '../../components/learning/AskQuestionModal.vue';
 import { formatDateTime } from '../../utils/form';
 import { videoEmbed } from '../../utils/teaching';
 
@@ -48,6 +64,7 @@ const router = useRouter();
 const data = ref(null);
 const error = ref('');
 const completing = ref(false);
+const askOpen = ref(false);
 const video = computed(() => videoEmbed(data.value?.lesson.videoUrl));
 
 async function load() {

@@ -532,3 +532,17 @@ pub async fn attended_pairs(
     }
     Ok(repo::attended_pairs(&ctx.db, session_ids, user).await?)
 }
+
+/// Số buổi được mời / có mặt của từng học sinh (báo cáo lớp học, báo cáo phụ huynh).
+pub async fn attendance_stats(
+    ctx: &AppContext,
+    class_id: Option<Uuid>,
+    user_ids: &[Uuid],
+    from: Option<DateTime<Utc>>,
+    to: DateTime<Utc>,
+) -> AppResult<Vec<(Uuid, i64, i64)>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(repo::attendance_stats(&ctx.db, class_id, user_ids, from, to).await?)
+}

@@ -73,6 +73,8 @@
 
     <LinkedAccounts />
 
+    <GuardiansPanel v-if="auth.user?.role === 'student'" />
+
     <section class="panel">
       <h2>Phiên đăng nhập</h2>
       <p class="muted">
@@ -89,6 +91,7 @@ import { reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { authApi } from '../api';
+import GuardiansPanel from '../components/GuardiansPanel.vue';
 import LinkedAccounts from '../components/LinkedAccounts.vue';
 import { useAuthStore } from '../stores/auth';
 import { formatDateTime, useSubmit } from '../utils/form';

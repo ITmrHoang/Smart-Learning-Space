@@ -108,6 +108,8 @@ pub enum StepKind {
     Exam,
     /// Buổi học (lịch) — xong khi có điểm danh.
     Session,
+    /// Bộ thẻ ghi nhớ — xong khi đã ôn mọi thẻ ít nhất một lần.
+    Deck,
 }
 
 impl StepKind {
@@ -117,6 +119,7 @@ impl StepKind {
             StepKind::Lesson => "lesson",
             StepKind::Exam => "exam",
             StepKind::Session => "session",
+            StepKind::Deck => "deck",
         }
     }
 }
@@ -151,6 +154,8 @@ pub struct Step {
     /// Ảnh chụp cũ (trước khi có buổi học) không có trường này.
     #[serde(default)]
     pub session_id: Option<Uuid>,
+    #[serde(default)]
+    pub deck_id: Option<Uuid>,
     pub unlock: Unlock,
     /// Bước đề: điểm cao nhất phải ≥ mức này mới tính là xong.
     pub pass_score: Option<f64>,
@@ -164,6 +169,7 @@ pub struct StepRow {
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub deck_id: Option<Uuid>,
     pub unlock: String,
     pub pass_score: Option<f64>,
 }
@@ -176,12 +182,14 @@ impl From<StepRow> for Step {
                 "lesson" => StepKind::Lesson,
                 "exam" => StepKind::Exam,
                 "session" => StepKind::Session,
+                "deck" => StepKind::Deck,
                 _ => StepKind::Milestone,
             },
             title: r.title,
             lesson_id: r.lesson_id,
             exam_id: r.exam_id,
             session_id: r.session_id,
+            deck_id: r.deck_id,
             unlock: if r.unlock == "previous" { Unlock::Previous } else { Unlock::Free },
             pass_score: r.pass_score,
         }

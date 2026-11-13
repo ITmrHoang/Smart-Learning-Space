@@ -4,6 +4,7 @@
 pub mod audit;
 pub mod auth;
 pub mod catalog;
+pub mod community;
 pub mod health;
 pub mod learning;
 pub mod sso;

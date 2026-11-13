@@ -25,6 +25,10 @@
           <option :value="null" disabled>Chọn bài học…</option>
           <option v-for="l in lessons" :key="l.id" :value="l.id">{{ l.title }}{{ l.publishedVersion == null ? ' (chưa xuất bản)' : '' }}</option>
         </select>
+        <select v-else-if="s.kind === 'deck'" v-model="s.deckId" class="native-select grow" @change="dirty = true">
+          <option :value="null" disabled>Chọn bộ thẻ ghi nhớ…</option>
+          <option v-for="d in deckChoices(s)" :key="d.id" :value="d.id">{{ d.title }} · {{ d.cardCount }} thẻ</option>
+        </select>
         <select v-else-if="s.kind === 'session'" v-model="s.sessionId" class="native-select grow" @change="dirty = true">
           <option :value="null" disabled>Chọn buổi học của lớp học này…</option>
           <option v-for="x in sessionChoices(s)" :key="x.id" :value="x.id">{{ formatSessionTime(x.startsAt, x.endsAt) }} · {{ x.title }}{{ x.status === 'cancelled' ? ' (đã hủy)' : '' }}</option>
@@ -35,7 +39,7 @@
         </select>
 
         <hui-tag v-if="s.refStatus === 'draft'" size="sm" color="warning">Bài chưa xuất bản</hui-tag>
-        <hui-tag v-else-if="s.refStatus === 'empty'" size="sm" color="warning">Đề chưa có câu</hui-tag>
+        <hui-tag v-else-if="s.refStatus === 'empty'" size="sm" color="warning">{{ s.kind === 'deck' ? 'Bộ thẻ chưa có thẻ' : 'Đề chưa có câu' }}</hui-tag>
         <hui-tag v-else-if="s.refStatus === 'archived'" size="sm" color="danger">Đã bị ẩn</hui-tag>
         <hui-tag v-else-if="s.refStatus === 'cancelled'" size="sm" color="danger">Buổi đã hủy</hui-tag>
 
@@ -60,10 +64,12 @@
       <hui-button size="sm" variant="outline" @hui-click="add('lesson')">+ Bài học</hui-button>
       <hui-button size="sm" variant="outline" @hui-click="add('exam')">+ Đề ôn tập / kiểm tra</hui-button>
       <hui-button size="sm" variant="outline" @hui-click="add('session')">+ Buổi học</hui-button>
+      <hui-button size="sm" variant="outline" @hui-click="add('deck')">+ Thẻ ghi nhớ</hui-button>
       <span class="muted small">
         Chưa có bài? <RouterLink :to="{ name: 'teach-lesson', params: { id: 'moi' } }">Soạn bài</RouterLink> ·
         <RouterLink :to="{ name: 'teach-exam', params: { id: 'moi' } }">Tạo đề</RouterLink> ·
-        <RouterLink :to="{ name: 'teach-schedule', query: { classId } }">Xếp lịch buổi học</RouterLink>
+        <RouterLink :to="{ name: 'teach-schedule', query: { classId } }">Xếp lịch buổi học</RouterLink> ·
+        <RouterLink :to="{ name: 'teach-deck', params: { id: 'moi' } }">Tạo bộ thẻ</RouterLink>
       </span>
     </div>
   </div>
@@ -78,7 +84,7 @@ import { formatDateTime } from '../../utils/form';
 import { formatSessionTime } from '../../utils/schedule';
 import { EXAM_KIND_LABELS, STEP_KIND_LABELS } from '../../utils/teaching';
 
-const KIND_COLORS = { exam: 'primary', lesson: 'success', session: 'warning', milestone: 'secondary' };
+const KIND_COLORS = { exam: 'primary', lesson: 'success', session: 'warning', deck: 'info', milestone: 'secondary' };
 
 const DAY = 86_400_000;
 const props = defineProps({ classId: { type: String, required: true } });
@@ -90,6 +96,7 @@ const lessons = ref([]);
 const exams = ref([]);
 /** Buổi học của lớp học này (90 ngày tới, kèm vài ngày trước) */
 const sessions = ref([]);
+const decks = ref([]);
 const dirty = ref(false);
 const saving = ref(false);
 const publishing = ref(false);
@@ -107,11 +114,20 @@ function stepNumber(i) {
 }
 
 function add(kind) {
-  steps.value.push({ key: ++seq, id: null, kind, title: '', lessonId: null, examId: null, sessionId: null, unlock: 'free', passScore: null, refStatus: null });
+  steps.value.push({ key: ++seq, id: null, kind, title: '', lessonId: null, examId: null, sessionId: null, deckId: null, unlock: 'free', passScore: null, refStatus: null });
   dirty.value = true;
 }
 
 /** Buổi học chọn được: buổi của lớp học trong khoảng đã tải + buổi bước đang trỏ tới (có thể đã qua). */
+/** Bộ thẻ chọn được + bộ thẻ bước đang trỏ tới (có thể đã bị ẩn). */
+function deckChoices(step) {
+  const list = [...decks.value];
+  if (step.deckId && !list.some((d) => d.id === step.deckId)) {
+    list.unshift({ id: step.deckId, title: step.refTitle ?? 'Bộ thẻ', cardCount: step.itemCount ?? 0 });
+  }
+  return list;
+}
+
 function sessionChoices(step) {
   const list = [...sessions.value];
   if (step.sessionId && !list.some((x) => x.id === step.sessionId)) {
@@ -149,6 +165,7 @@ function payload() {
     lessonId: s.kind === 'lesson' ? s.lessonId : null,
     examId: s.kind === 'exam' ? s.examId : null,
     sessionId: s.kind === 'session' ? s.sessionId : null,
+    deckId: s.kind === 'deck' ? s.deckId : null,
     unlock: s.unlock,
     passScore: s.kind === 'exam' && s.passScore !== '' && s.passScore != null ? Number(s.passScore) : null,
   }));
@@ -186,17 +203,19 @@ async function publish() {
 
 onMounted(async () => {
   const now = Date.now();
-  const [p, ls, es, ss] = await Promise.all([
+  const [p, ls, es, ss, ds] = await Promise.all([
     teachingApi.path(props.classId),
     teachingApi.lessons({ pageSize: 100 }).catch(() => ({ items: [] })),
     teachingApi.exams({ pageSize: 100 }).catch(() => ({ items: [] })),
     teachingApi
       .sessions({ classId: props.classId, from: new Date(now - 3 * DAY).toISOString(), to: new Date(now + 90 * DAY).toISOString() })
       .catch(() => []),
+    teachingApi.decks().catch(() => []),
   ]);
   lessons.value = ls.items;
   exams.value = es.items;
   sessions.value = ss;
+  decks.value = ds;
   apply(p);
 });
 </script>

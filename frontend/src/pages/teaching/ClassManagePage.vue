@@ -61,6 +61,14 @@
         </div>
       </section>
 
+      <section v-else-if="tab === 'report'" class="panel">
+        <ClassReport :classId="cls.id" />
+      </section>
+
+      <section v-else-if="tab === 'qa'" class="panel">
+        <QaPanel :classId="cls.id" teacher @changed="loadQaCounts" />
+      </section>
+
       <section v-else-if="tab === 'progress'" class="panel stack">
         <div class="row between">
           <h2 style="margin: 0">Tiến độ học sinh</h2>
@@ -133,9 +141,11 @@ import { message } from '@itmrhoang/h-ui/hui-message';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { teachingApi } from '../../api';
+import { qaApi, teachingApi } from '../../api';
 import PromptModal from '../../components/PromptModal.vue';
+import QaPanel from '../../components/learning/QaPanel.vue';
 import ClassFormModal from '../../components/teaching/ClassFormModal.vue';
+import ClassReport from '../../components/teaching/ClassReport.vue';
 import PathEditor from '../../components/teaching/PathEditor.vue';
 import { formatDateTime } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
@@ -148,7 +158,10 @@ const cls = ref(null);
 const members = ref([]);
 const progress = ref(null);
 const error = ref('');
-const tab = ref('path');
+/** Tab theo `?tab=` (link trong thông báo): bao-cao | hoi-dap */
+const TAB_QUERY = { 'bao-cao': 'report', 'hoi-dap': 'qa' };
+const tab = ref(TAB_QUERY[route.query.tab] ?? 'path');
+const qaCounts = ref({ openThreads: 0, openReports: 0 });
 const editOpen = ref(false);
 const copyOpen = ref(false);
 const newLogin = ref('');
@@ -159,6 +172,11 @@ const tabs = computed(() => [
   { value: 'path', label: 'Lộ trình' },
   { value: 'members', label: `Học sinh${cls.value?.pendingCount ? ` (${cls.value.pendingCount} chờ duyệt)` : ''}` },
   { value: 'progress', label: 'Tiến độ' },
+  { value: 'report', label: 'Báo cáo' },
+  {
+    value: 'qa',
+    label: `Hỏi đáp${qaCounts.value.openReports ? ` (${qaCounts.value.openReports} báo vi phạm)` : qaCounts.value.openThreads ? ` (${qaCounts.value.openThreads})` : ''}`,
+  },
   { value: 'info', label: 'Thông tin' },
 ]);
 const pending = computed(() => members.value.filter((m) => m.status === 'pending'));
@@ -176,6 +194,10 @@ async function reload() {
 
 async function loadMembers() {
   members.value = await teachingApi.members(route.params.id).catch(() => []);
+}
+
+async function loadQaCounts() {
+  qaCounts.value = await qaApi.counts(route.params.id).catch(() => qaCounts.value);
 }
 
 async function loadProgress() {
@@ -247,6 +269,7 @@ watch(
 );
 
 onMounted(() => {
+  loadQaCounts();
   loadMaster();
   reload();
 });

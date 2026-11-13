@@ -43,6 +43,7 @@
           <h2 style="margin: 0">Học tiếp</h2>
           <RouterLink to="/lop-hoc-cua-toi">Lớp học của tôi →</RouterLink>
         </div>
+        <RouterLink v-if="dueCards" to="/on-tap" class="due">🗂 <b>{{ dueCards }}</b> thẻ ghi nhớ cần ôn hôm nay — Ôn ngay →</RouterLink>
         <p v-if="classesLoaded && !learning.length" class="muted" style="margin: 0">
           Bạn chưa vào lớp học nào. <RouterLink to="/kham-pha">Tìm lớp học</RouterLink>
         </p>
@@ -107,6 +108,8 @@ const upcoming = computed(() =>
   sessions.value.filter((x) => x.status !== 'cancelled' && new Date(x.endsAt) > now.value).slice(0, 8),
 );
 const myClasses = ref([]);
+/** Thẻ ghi nhớ đến hạn + thẻ mới trong các lớp học đang học */
+const dueCards = ref(0);
 const classesLoaded = ref(false);
 /** Lớp đang học, chưa xong — nhiều tiến độ nhất trước */
 const learning = computed(() =>
@@ -146,6 +149,10 @@ async function loadSessions() {
 onMounted(async () => {
   timer = setInterval(() => (now.value = Date.now()), 30_000);
   loadSessions();
+  learnApi
+    .myReviews()
+    .then((list) => (dueCards.value = list.reduce((a, d) => a + d.due + d.newCount, 0)))
+    .catch(() => {});
   learnApi
     .myClasses()
     .then((list) => (myClasses.value = list))
@@ -201,6 +208,12 @@ onUnmounted(() => clearInterval(timer));
 }
 .tags {
   grid-area: tags;
+}
+.due {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--hui-radius-md, 8px);
+  background: color-mix(in srgb, var(--hui-warning, #f59e0b) 12%, transparent);
 }
 .join {
   font-weight: 600;

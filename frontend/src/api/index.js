@@ -140,6 +140,22 @@ export const teachingApi = {
   updateSession: (id, data) => http.put(`/teaching/sessions/${id}`, data),
   cancelSession: (id, scope = 'this') => http.post(`/teaching/sessions/${id}/cancel`, { scope }),
   setAttendance: (id, userId, attended) => http.put(`/teaching/sessions/${id}/attendance`, { userId, attended }),
+
+  // Báo cáo lớp học (M17) + xử lý báo vi phạm (M18) + gửi báo cáo phụ huynh (M20)
+  classReport: (id) => http.get(`/teaching/classes/${id}/report`),
+  classReportXlsx: (id) => http.blob(`/teaching/classes/${id}/report.xlsx`),
+  contentReports: (id, status) => http.get(`/teaching/classes/${id}/content-reports`, { status }),
+  resolveReport: (id, action) => http.post(`/teaching/content-reports/${id}/resolve`, { action }),
+  sendGuardianReport: (classId, userId, note) =>
+    http.post(`/teaching/classes/${classId}/students/${userId}/guardian-report`, { note }),
+
+  // Thẻ ghi nhớ (M19)
+  decks: (query) => http.get('/teaching/decks', query),
+  deck: (id) => http.get(`/teaching/decks/${id}`),
+  createDeck: (data) => http.post('/teaching/decks', data),
+  updateDeck: (id, data) => http.put(`/teaching/decks/${id}`, data),
+  archiveDeck: (id) => http.del(`/teaching/decks/${id}`),
+  deckFromQuestions: (id, questionIds) => http.post(`/teaching/decks/${id}/from-questions`, { questionIds }),
 };
 
 /** Học sinh: lớp học, lộ trình. */
@@ -155,6 +171,10 @@ export const learnApi = {
   completeStep: (id, stepId) => http.post(`/classes/${id}/steps/${stepId}/complete`),
   startExam: (id, stepId) => http.post(`/classes/${id}/steps/${stepId}/attempts`),
   stepAttempts: (id, stepId) => http.get(`/classes/${id}/steps/${stepId}/attempts`),
+  stepDeck: (id, stepId) => http.get(`/classes/${id}/steps/${stepId}/deck`),
+  /** rating: again | hard | good | easy */
+  review: (id, stepId, cardId, rating) => http.post(`/classes/${id}/steps/${stepId}/reviews`, { cardId, rating }),
+  myReviews: () => http.get('/my/reviews'),
 };
 
 /** Lượt làm bài. */
@@ -182,4 +202,37 @@ export const notificationApi = {
   unreadCount: () => http.get('/notifications/unread-count'),
   read: (id) => http.post(`/notifications/${id}/read`),
   readAll: () => http.post('/notifications/read-all'),
+};
+
+/** Hỏi đáp theo bài (M18). */
+export const qaApi = {
+  /** query: { stepId, status: all | open | answered | mine, q, page, pageSize } */
+  threads: (classId, query) => http.get(`/classes/${classId}/threads`, query),
+  counts: (classId) => http.get(`/classes/${classId}/qa-counts`),
+  create: (classId, data) => http.post(`/classes/${classId}/threads`, data),
+  get: (id) => http.get(`/threads/${id}`),
+  update: (id, data) => http.put(`/threads/${id}`, data),
+  remove: (id) => http.del(`/threads/${id}`),
+  reply: (id, body) => http.post(`/threads/${id}/posts`, { body }),
+  /** action: pin | unpin | hide | unhide */
+  moderateThread: (id, action) => http.post(`/threads/${id}/moderate`, { action }),
+  updatePost: (id, body) => http.put(`/posts/${id}`, { body }),
+  removePost: (id) => http.del(`/posts/${id}`),
+  /** action: accept | unaccept | hide | unhide */
+  moderatePost: (id, action) => http.post(`/posts/${id}/moderate`, { action }),
+  report: (targetType, targetId, reason) => http.post('/content-reports', { targetType, targetId, reason }),
+};
+
+/** Phụ huynh (M20): học sinh khai + trang phụ huynh bấm link trong email (không cần đăng nhập). */
+export const guardianApi = {
+  mine: () => http.get('/my/guardians'),
+  add: (data) => http.post('/my/guardians', data),
+  update: (id, data) => http.put(`/my/guardians/${id}`, data),
+  remove: (id) => http.del(`/my/guardians/${id}`),
+  resend: (id) => http.post(`/my/guardians/${id}/resend`),
+  consentInfo: (token) => http.get('/guardians/consent', { token }),
+  respond: (token, accept) => http.post('/guardians/consent', { token, accept }),
+  subscription: (token) => http.get('/guardians/subscription', { token }),
+  unsubscribe: (token) => http.post('/guardians/unsubscribe', { token }),
+  subscribe: (token) => http.post('/guardians/subscribe', { token }),
 };

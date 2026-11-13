@@ -230,6 +230,8 @@ pub struct StepInput {
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    #[serde(default)]
+    pub deck_id: Option<Uuid>,
     #[serde(default = "default_unlock")]
     pub unlock: Unlock,
     #[validate(range(min = 0.0, max = 1000.0, message = "Điểm đạt từ 0 đến 1000."))]
@@ -257,6 +259,7 @@ pub struct DraftStep {
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub deck_id: Option<Uuid>,
     /// Bước buổi học: giờ bắt đầu.
     pub starts_at: Option<DateTime<Utc>>,
     pub unlock: Unlock,
@@ -297,6 +300,9 @@ pub struct LearnStep {
     pub lesson_id: Option<Uuid>,
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub deck_id: Option<Uuid>,
+    /// Bộ thẻ: số thẻ đến hạn ôn + thẻ chưa học.
+    pub due_cards: Option<i64>,
     pub starts_at: Option<DateTime<Utc>>,
     pub ends_at: Option<DateTime<Utc>>,
     /// Buổi học: scheduled | cancelled.
@@ -396,4 +402,21 @@ pub struct StudentProgress {
 pub struct ClassProgress {
     pub steps: Vec<ProgressStep>,
     pub students: Vec<StudentProgress>,
+}
+
+/// Bộ thẻ cần ôn (trang "Ôn tập hôm nay").
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DueDeck {
+    pub class_id: Uuid,
+    pub class_title: String,
+    pub step_id: Uuid,
+    pub deck_id: Uuid,
+    pub title: String,
+    /// Thẻ đến hạn ôn.
+    pub due: i64,
+    /// Thẻ chưa học.
+    #[serde(rename = "newCount")]
+    pub fresh: i64,
+    pub total: i64,
 }

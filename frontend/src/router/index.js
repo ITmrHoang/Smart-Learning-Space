@@ -78,10 +78,15 @@ export const routes = [
       { path: 'bai-lam/:id', name: 'attempt', component: () => import('../pages/learning/AttemptPage.vue') },
       { path: 'lich-hoc', name: 'my-schedule', component: () => import('../pages/learning/MySchedulePage.vue') },
       { path: 'buoi-hoc/:id', name: 'session', component: () => import('../pages/learning/SessionPage.vue') },
+      { path: 'on-tap', name: 'review-today', component: () => import('../pages/learning/ReviewTodayPage.vue') },
+      { path: 'lop-hoc/:id/the/:stepId', name: 'deck-study', component: () => import('../pages/learning/DeckStudyPage.vue') },
+      { path: 'lop-hoc/:id/hoi-dap/:threadId', name: 'thread', component: () => import('../pages/learning/ThreadPage.vue') },
       // Giáo viên soạn nội dung
       ...[
         ['day-hoc/lich', 'teach-schedule', () => import('../pages/teaching/SchedulePage.vue')],
         ['day-hoc/nhom', 'teach-groups', () => import('../pages/teaching/GroupsPage.vue')],
+        ['day-hoc/the-ghi-nho', 'teach-decks', () => import('../pages/teaching/DecksPage.vue')],
+        ['day-hoc/the-ghi-nho/:id', 'teach-deck', () => import('../pages/teaching/DeckEditorPage.vue')],
         ['day-hoc/lop-hoc', 'teach-classes', () => import('../pages/teaching/ClassesPage.vue')],
         ['day-hoc/lop-hoc/:id', 'teach-class', () => import('../pages/teaching/ClassManagePage.vue')],
         ['day-hoc/bai-hoc', 'teach-lessons', () => import('../pages/teaching/LessonsPage.vue')],
@@ -109,6 +114,15 @@ export const routes = [
     path: '/dat-lai-mat-khau',
     component: AuthLayout,
     children: [{ path: '', name: 'reset-password', component: () => import('../pages/auth/ResetPasswordPage.vue') }],
+  },
+  {
+    // Link trong email gửi phụ huynh: không cần đăng nhập, mở được cả khi đang đăng nhập.
+    path: '/phu-huynh',
+    component: AuthLayout,
+    children: [
+      { path: 'xac-nhan', name: 'guardian-consent', component: () => import('../pages/auth/GuardianConsentPage.vue') },
+      { path: 'huy-nhan', name: 'guardian-unsubscribe', component: () => import('../pages/auth/GuardianUnsubscribePage.vue') },
+    ],
   },
   {
     // Google / Microsoft chuyển về sau khi đăng nhập (backend `/api/auth/sso/{provider}/callback`).

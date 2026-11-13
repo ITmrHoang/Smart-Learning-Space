@@ -62,16 +62,18 @@
           <li v-for="s in learn.steps" :key="s.id" :class="[`kind-${s.kind}`, `st-${s.status}`]">
             <h3 v-if="s.kind === 'milestone'">{{ s.title }}</h3>
             <template v-else>
-              <span class="icon" :title="STEP_STATUS_LABELS[s.status]">{{ s.status === 'done' ? '✓' : s.status === 'locked' ? '🔒' : s.kind === 'exam' ? '✎' : s.kind === 'session' ? '◷' : '▶' }}</span>
+              <span class="icon" :title="STEP_STATUS_LABELS[s.status]">{{ s.status === 'done' ? '✓' : s.status === 'locked' ? '🔒' : s.kind === 'exam' ? '✎' : s.kind === 'session' ? '◷' : s.kind === 'deck' ? '❏' : '▶' }}</span>
               <div class="body">
                 <div class="row">
                   <b>{{ s.title }}</b>
                   <hui-tag v-if="s.kind === 'exam'" size="sm" :color="EXAM_KIND_COLORS[s.examKind]">{{ EXAM_KIND_LABELS[s.examKind] }}</hui-tag>
                   <hui-tag v-if="s.kind === 'session'" size="sm" :color="PHASE_COLORS[phaseOf(s)]">{{ PHASE_LABELS[phaseOf(s)] }}</hui-tag>
+                  <hui-tag v-if="s.kind === 'deck' && s.dueCards" size="sm" color="warning">{{ s.dueCards }} thẻ cần ôn</hui-tag>
                 </div>
                 <span class="muted small">
                   <template v-if="s.kind === 'lesson'">Bài học{{ s.durationMinutes ? ` · ${s.durationMinutes} phút` : '' }}</template>
                   <template v-else-if="s.kind === 'session'">Buổi học · {{ formatSessionTime(s.startsAt, s.endsAt) }}<template v-if="s.status === 'done'"> · đã điểm danh</template></template>
+                  <template v-else-if="s.kind === 'deck'">Thẻ ghi nhớ · {{ s.itemCount }} thẻ<template v-if="s.status === 'done'"> · đã ôn hết một lượt</template></template>
                   <template v-else>
                     {{ s.itemCount }} câu{{ s.timeLimitMinutes ? ` · ${s.timeLimitMinutes} phút` : '' }}
                     <template v-if="s.passScore != null"> · cần đạt {{ formatScore(s.passScore) }} điểm</template>
@@ -90,6 +92,9 @@
                 <template v-if="s.status !== 'locked'">
                   <RouterLink v-if="s.kind === 'lesson'" :to="{ name: 'lesson-view', params: { id: detail.id, stepId: s.id } }">
                     {{ s.status === 'done' ? 'Xem lại' : 'Học' }}
+                  </RouterLink>
+                  <RouterLink v-else-if="s.kind === 'deck'" :to="{ name: 'deck-study', params: { id: detail.id, stepId: s.id } }">
+                    {{ s.dueCards ? 'Ôn thẻ' : 'Luyện thêm' }}
                   </RouterLink>
                   <RouterLink v-else-if="s.kind === 'session'" :to="{ name: 'session', params: { id: s.sessionId } }">
                     {{ ['live', 'soon'].includes(phaseOf(s)) ? 'Vào học' : 'Chi tiết' }}
@@ -112,6 +117,10 @@
         </div>
       </section>
 
+      <section v-if="learn" id="hoi-dap" class="panel">
+        <QaPanel :classId="detail.id" :teacher="detail.isOwner" />
+      </section>
+
       <!-- Chưa vào học: mục lục -->
       <section v-else-if="detail.outline.length" class="panel stack">
         <h2 style="margin: 0">Nội dung lớp học</h2>
@@ -128,10 +137,11 @@
 
 <script setup>
 import { message } from '@itmrhoang/h-ui/hui-message';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { learnApi, sessionApi } from '../../api';
+import QaPanel from '../../components/learning/QaPanel.vue';
 import { formatDateTime } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
 import { PHASE_COLORS, PHASE_LABELS, formatSessionTime, sessionPhase } from '../../utils/schedule';
@@ -177,6 +187,7 @@ async function load() {
         .filter((x) => x.status !== 'cancelled' && new Date(x.endsAt) > now)
         .slice(0, 5);
     }
+    if (route.hash === '#hoi-dap') nextTick(() => document.getElementById('hoi-dap')?.scrollIntoView());
   } catch (e) {
     error.value = e.message;
   }

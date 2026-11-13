@@ -46,6 +46,9 @@ export const NOTIFICATION_KIND_LABELS = {
   enrollment_approved: 'Được duyệt vào lớp',
   class_added: 'Được thêm vào lớp',
   path_published: 'Lộ trình mới',
+  question_new: 'Câu hỏi mới',
+  question_reply: 'Trả lời mới',
+  content_reported: 'Báo vi phạm',
 };
 export const NOTIFICATION_KIND_ICONS = {
   session_invite: 'calendar',
@@ -55,6 +58,9 @@ export const NOTIFICATION_KIND_ICONS = {
   enrollment_approved: 'success',
   class_added: 'user',
   path_published: 'star',
+  question_new: 'chat',
+  question_reply: 'chat',
+  content_reported: 'warning',
 };
 
 /** 90 → "1 giờ 30 phút"; 45 → "45 phút"; 120 → "2 giờ". */

@@ -24,6 +24,12 @@ pub enum NotificationKind {
     EnrollmentApproved,
     ClassAdded,
     PathPublished,
+    /// Hỏi đáp: có câu hỏi mới (gửi giáo viên).
+    QuestionNew,
+    /// Hỏi đáp: có trả lời mới (gửi người hỏi + người đã trả lời).
+    QuestionReply,
+    /// Có nội dung bị báo vi phạm (gửi giáo viên).
+    ContentReported,
 }
 
 impl NotificationKind {
@@ -36,6 +42,9 @@ impl NotificationKind {
             Self::EnrollmentApproved => "enrollment_approved",
             Self::ClassAdded => "class_added",
             Self::PathPublished => "path_published",
+            Self::QuestionNew => "question_new",
+            Self::QuestionReply => "question_reply",
+            Self::ContentReported => "content_reported",
         }
     }
 }
