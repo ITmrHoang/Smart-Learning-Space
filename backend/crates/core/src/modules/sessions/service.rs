@@ -7,7 +7,7 @@ use validator::Validate;
 use super::{
     dto::{
         AttendanceInput, AttendeeView, CancelInput, CreateSessionInput, CreateSessionResponse, EditScope,
-        InviteesInput, InviteesView, JoinResponse, NamedRef, RangeQuery, RsvpInput, SessionDetail, SessionFields,
+        InviteesInput, InviteesView, JoinResponse, NamedRef, RangeQuery, Room, RsvpInput, SessionDetail, SessionFields,
         SessionSummary, UpdateSessionInput, UpdateSessionResponse,
     },
     ics::{self, IcsEvent, Method},
@@ -83,6 +83,12 @@ async fn validate_fields(ctx: &AppContext, actor: &Actor, f: &SessionFields) -> 
     if f.access == Access::Members && f.class_id.is_none() {
         return Err(AppError::field("access", "Chọn lớp học của buổi để cho thành viên lớp học vào."));
     }
+    if f.room == Room::Live && ctx.config.live.is_none() {
+        return Err(AppError::field("room", "Chưa cấu hình phòng học trực tuyến (LiveKit). Hãy dùng link họp ngoài."));
+    }
+    if f.access == Access::PublicLink && f.room != Room::Live {
+        return Err(AppError::field("access", "Buổi mở cho khách chỉ dùng được với phòng học của hệ thống."));
+    }
     if f.access == Access::Invited && f.invitees.is_empty() {
         return Err(AppError::field("invitees", "Mời ít nhất một lớp học, nhóm hoặc học sinh."));
     }
@@ -109,6 +115,7 @@ fn new_session<'a>(owner: Uuid, schedule: Option<Uuid>, f: &'a SessionFields, st
         ends_at: start + TimeDelta::minutes(f.duration_minutes),
         access: f.access.as_str(),
         meeting_url: f.meeting_url.as_deref().map(str::trim).filter(|u| !u.is_empty()),
+        room: f.room.as_str(),
         remind_minutes: f.remind_minutes,
     }
 }
@@ -389,7 +396,7 @@ async fn can_access(ctx: &AppContext, actor: &Actor, s: &SessionRow) -> AppResul
     let allowed = invited
         || s.owner_id == actor.id
         || match s.access.as_str() {
-            "logged_in" => true,
+            "logged_in" | "public_link" => true,
             "members" => match s.class_id {
                 Some(class) => repo::is_class_member(&ctx.db, class, actor.id).await?,
                 None => false,
@@ -496,7 +503,7 @@ pub async fn join(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<JoinRe
     if s.owner_id != actor.id {
         repo::mark_joined(&ctx.db, id, actor.id).await?;
     }
-    Ok(JoinResponse { meeting_url: s.meeting_url })
+    Ok(JoinResponse { meeting_url: s.meeting_url, room: s.room })
 }
 
 // ---------- Nhắc lịch (chạy nền) ----------
@@ -573,6 +580,8 @@ pub async fn create_booked(ctx: &AppContext, b: BookedSession<'_>) -> AppResult<
         duration_minutes,
         invitees: InviteesInput { user_ids: vec![student_id], ..Default::default() },
         access: Access::Invited,
+        // Không có link họp + có phòng của hệ thống → học kèm trong phòng của hệ thống.
+        room: if meeting_url.is_none() && ctx.config.live.is_some() { Room::Live } else { Room::External },
         meeting_url,
         remind_minutes: 60,
         lesson_ids: Vec::new(),
@@ -618,4 +627,71 @@ pub async fn busy(
         .filter(|s| s.status != "cancelled")
         .map(|s| (s.starts_at, s.ends_at))
         .collect())
+}
+
+// ---------- Phòng học trực tuyến (đợt 6) ----------
+
+/// Giáo viên được mở phòng sớm bấy nhiêu trước giờ học; ai cũng ở lại được bấy nhiêu sau giờ kết thúc.
+const LIVE_TEACHER_EARLY: TimeDelta = TimeDelta::minutes(60);
+const LIVE_OVERTIME: TimeDelta = TimeDelta::minutes(30);
+
+/// Vào phòng học trực tuyến của buổi: kiểm tra quyền + giờ như "Vào học", ghi điểm danh học sinh.
+/// Trả về buổi học và người vào có phải giáo viên chủ buổi không.
+pub async fn enter_live(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(SessionRow, bool)> {
+    let s = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
+    let (allowed, _) = can_access(ctx, actor, &s).await?;
+    if !allowed {
+        return Err(not_found());
+    }
+    let is_owner = s.owner_id == actor.id;
+    live_window(&s, is_owner)?;
+    if !is_owner {
+        repo::mark_joined(&ctx.db, id, actor.id).await?;
+    }
+    Ok((s, is_owner))
+}
+
+/// Buổi học có phòng của hệ thống, đang trong giờ mở phòng (khách dùng chung quy tắc với học sinh).
+pub fn live_window(s: &SessionRow, is_owner: bool) -> AppResult<()> {
+    if s.room != "live" {
+        return Err(AppError::conflict("NOT_LIVE_ROOM", "Buổi học này dùng link họp ngoài."));
+    }
+    if s.status == "cancelled" {
+        return Err(AppError::conflict("SESSION_CANCELLED", "Buổi học đã hủy."));
+    }
+    let now = Utc::now();
+    let opens = s.starts_at - if is_owner { LIVE_TEACHER_EARLY } else { JOIN_EARLY };
+    if now < opens {
+        return Err(AppError::conflict(
+            "SESSION_NOT_OPEN",
+            format!("Chưa tới giờ vào học. Phòng mở lúc {}.", time::format_vn(opens)),
+        ));
+    }
+    if now > s.ends_at + LIVE_OVERTIME {
+        return Err(AppError::conflict("SESSION_ENDED", "Buổi học đã kết thúc."));
+    }
+    Ok(())
+}
+
+/// Buổi học (có phòng của hệ thống) của chính giáo viên.
+pub async fn own_live(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<SessionRow> {
+    let s = load_own(ctx, actor, id).await?;
+    if s.room != "live" {
+        return Err(AppError::conflict("NOT_LIVE_ROOM", "Buổi học này dùng link họp ngoài."));
+    }
+    Ok(s)
+}
+
+/// Buổi học người xem được vào (xem lại bảng / bình chọn sau buổi).
+pub async fn viewable(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<SessionRow> {
+    let s = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
+    if !can_access(ctx, actor, &s).await?.0 {
+        return Err(not_found());
+    }
+    Ok(s)
+}
+
+/// Buổi học theo ID (khách vào bằng link — kiểm tra khóa ở module `live`).
+pub async fn find_row(ctx: &AppContext, id: Uuid) -> AppResult<SessionRow> {
+    repo::find(&ctx.db, id).await?.ok_or_else(not_found)
 }

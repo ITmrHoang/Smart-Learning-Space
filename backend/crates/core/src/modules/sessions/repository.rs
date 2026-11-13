@@ -5,7 +5,7 @@ use uuid::Uuid;
 use super::model::{AttendeeRow, InviteeRow, Recipient, SessionRef, SessionRow};
 
 const SESSION_COLS: &str = "s.id, s.owner_id, s.schedule_id, s.class_id, s.title, s.description, s.starts_at, s.ends_at, \
-     s.status, s.access, s.meeting_url, s.remind_minutes, s.ics_sequence, c.title AS class_title, u.full_name AS owner_name";
+     s.status, s.access, s.meeting_url, s.room, s.remind_minutes, s.ics_sequence, c.title AS class_title, u.full_name AS owner_name";
 const SESSION_FROM: &str =
     " FROM sessions s LEFT JOIN classes c ON c.id = s.class_id JOIN users u ON u.id = s.owner_id";
 
@@ -33,6 +33,7 @@ pub struct NewSession<'a> {
     pub ends_at: DateTime<Utc>,
     pub access: &'a str,
     pub meeting_url: Option<&'a str>,
+    pub room: &'a str,
     pub remind_minutes: i32,
 }
 
@@ -56,8 +57,8 @@ pub async fn insert_schedule(
 
 pub async fn insert(conn: &mut sqlx::PgConnection, s: &NewSession<'_>) -> sqlx::Result<Uuid> {
     sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO sessions (owner_id, schedule_id, class_id, title, description, starts_at, ends_at, access, meeting_url, remind_minutes) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+        "INSERT INTO sessions (owner_id, schedule_id, class_id, title, description, starts_at, ends_at, access, meeting_url, remind_minutes, \
+         room) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id",
     )
     .bind(s.owner_id)
     .bind(s.schedule_id)
@@ -69,6 +70,7 @@ pub async fn insert(conn: &mut sqlx::PgConnection, s: &NewSession<'_>) -> sqlx::
     .bind(s.access)
     .bind(s.meeting_url)
     .bind(s.remind_minutes)
+    .bind(s.room)
     .fetch_one(&mut *conn)
     .await
 }
@@ -78,7 +80,7 @@ pub async fn update(conn: &mut sqlx::PgConnection, id: Uuid, s: &NewSession<'_>)
     sqlx::query(
         "UPDATE sessions SET class_id = $2, title = $3, description = $4, \
             reminded_at = CASE WHEN starts_at = $5 AND remind_minutes = $9 THEN reminded_at ELSE NULL END, \
-            starts_at = $5, ends_at = $6, access = $7, meeting_url = $8, remind_minutes = $9, \
+            starts_at = $5, ends_at = $6, access = $7, meeting_url = $8, remind_minutes = $9, room = $10, \
             ics_sequence = ics_sequence + 1, updated_at = now() WHERE id = $1",
     )
     .bind(id)
@@ -90,6 +92,7 @@ pub async fn update(conn: &mut sqlx::PgConnection, id: Uuid, s: &NewSession<'_>)
     .bind(s.access)
     .bind(s.meeting_url)
     .bind(s.remind_minutes)
+    .bind(s.room)
     .execute(&mut *conn)
     .await?;
     Ok(())

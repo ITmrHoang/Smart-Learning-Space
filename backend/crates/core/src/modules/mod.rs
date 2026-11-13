@@ -13,6 +13,7 @@ pub mod flashcards;
 pub mod groups;
 pub mod guardians;
 pub mod lessons;
+pub mod live;
 pub mod notifications;
 pub mod profiles;
 pub mod questions;

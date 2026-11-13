@@ -61,7 +61,13 @@
       </fieldset>
 
       <div class="grid-2">
-        <hui-input v-model="form.meetingUrl" label="Link phòng học (Google Meet, Zoom…)" placeholder="https://meet.google.com/…" :error="fields.meetingUrl" />
+        <div class="stack room-choice">
+          <span class="small"><b>Phòng học</b></span>
+          <label class="small"><input v-model="form.room" type="radio" value="live" :disabled="!liveEnabled" /> Phòng học của hệ thống (video, bảng thông minh, giơ tay){{ liveEnabled ? '' : ' — chưa cấu hình' }}</label>
+          <label class="small"><input v-model="form.room" type="radio" value="external" /> Link họp ngoài (Google Meet, Zoom…)</label>
+          <hui-input v-if="form.room === 'external'" v-model="form.meetingUrl" label="Link phòng học" placeholder="https://meet.google.com/…" :error="fields.meetingUrl" />
+          <p v-if="fields.room" class="field-error">{{ fields.room }}</p>
+        </div>
         <hui-select label="Nhắc học sinh" :options="remindOptions" :value="form.remindMinutes" @change="form.remindMinutes = $event.detail.value" />
       </div>
       <hui-select label="Bài sẽ dạy" mode="multiple" placeholder="Chọn bài học (không bắt buộc)" :options="lessonOptions" :value="form.lessonIds" searchable @change="form.lessonIds = $event.detail.value" />
@@ -74,7 +80,7 @@
 import { message } from '@itmrhoang/h-ui/hui-message';
 import { computed, reactive, ref, watch } from 'vue';
 
-import { teachingApi } from '../../api';
+import { liveApi, teachingApi } from '../../api';
 import { useSubmit } from '../../utils/form';
 import {
   ACCESS_LABELS,
@@ -107,13 +113,17 @@ const lessons = ref([]);
 const form = reactive({});
 
 const isEdit = computed(() => Boolean(props.session));
-const SHOWN = ['title', 'startsAt', 'durationMinutes', 'meetingUrl', 'weekdays', 'description'];
+const SHOWN = ['title', 'startsAt', 'durationMinutes', 'meetingUrl', 'weekdays', 'description', 'room'];
 const otherErrors = computed(() => Object.fromEntries(Object.entries(fields).filter(([k]) => !SHOWN.includes(k))));
 
 const str = (o) => o.map((x) => ({ value: String(x.value), label: x.label }));
 const weekdayOptions = str(WEEKDAYS);
 const remindOptions = str(REMIND_OPTIONS);
-const accessOptions = toOptions(ACCESS_LABELS);
+/** "Khách có link" chỉ dùng với phòng của hệ thống (có phòng chờ). */
+const accessOptions = computed(() =>
+  toOptions(ACCESS_LABELS).filter((o) => o.value !== 'public_link' || form.room === 'live'),
+);
+const liveEnabled = ref(false);
 const scopeOptions = [
   { value: 'this', label: 'Chỉ buổi này' },
   { value: 'following', label: 'Buổi này và các buổi sau' },
@@ -171,6 +181,7 @@ function fill() {
       userIds: (s.invitees?.users ?? []).map((x) => x.id),
       access: s.access,
       meetingUrl: s.meetingUrl ?? '',
+      room: s.room ?? 'external',
       remindMinutes: String(s.remindMinutes),
       lessonIds: s.lessons.map((l) => l.id),
       description: s.description ?? '',
@@ -197,6 +208,7 @@ function fill() {
     userIds: [],
     access: 'invited',
     meetingUrl: '',
+    room: liveEnabled.value ? 'live' : 'external',
     remindMinutes: '60',
     lessonIds: [],
     description: '',
@@ -209,6 +221,8 @@ watch(
   async (open) => {
     if (!open) return;
     reset();
+    // Có phòng của hệ thống (LiveKit) thì buổi mới mặc định dùng phòng đó.
+    liveEnabled.value = (await liveApi.status().catch(() => ({ enabled: false }))).enabled;
     fill();
     await loadOptions();
   },
@@ -236,8 +250,9 @@ function payload() {
     startsAt: fromLocal(form.date, form.time),
     durationMinutes: Number(form.duration),
     invitees: { classIds: form.classIds, groupIds: form.groupIds, userIds: form.userIds },
-    access: form.access,
-    meetingUrl: form.meetingUrl.trim() || null,
+    access: form.room !== 'live' && form.access === 'public_link' ? 'invited' : form.access,
+    room: form.room,
+    meetingUrl: form.room === 'external' ? form.meetingUrl.trim() || null : null,
     remindMinutes: Number(form.remindMinutes),
     lessonIds: form.lessonIds,
   };

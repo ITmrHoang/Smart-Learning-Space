@@ -60,6 +60,8 @@ Backend là một *modular monolith* gồm 3 crate:
 | `hui-markdown` + `hui-math` (trong H-UI) | Hiển thị nội dung bài học / câu hỏi: Markdown + công thức LaTeX vẽ bằng MathML gốc của trình duyệt (không cần KaTeX / MathJax) |
 | `hui-timetable` (trong H-UI) | Lịch tuần / ngày có khung giờ cho Lịch dạy / Lịch học: buổi chồng giờ chia cột, vạch giờ hiện tại, kéo chọn khung giờ trống để tạo buổi học |
 | `hui-flashcard` (trong H-UI) | Thẻ ghi nhớ lật được (Markdown + công thức), 4 nút tự chấm Quên / Khó / Được / Dễ cho ôn tập lặp lại ngắt quãng |
+| `hui-whiteboard` (trong H-UI) | Bảng vẽ cho dạy trực tuyến (bút, hình, chữ, tẩy, nhiều trang, hoàn tác), phát thao tác để đồng bộ giữa các máy trong phòng |
+| **livekit-client** 2.23 | Kết nối trình duyệt với phòng LiveKit: video, âm thanh, chia sẻ màn hình, kênh dữ liệu (giơ tay, chat, bình chọn, bảng) |
 | **Vitest** + **jsdom** | Unit test cho API client, kiểm tra quyền, tiện ích SSO… |
 
 ### Hạ tầng (Docker, file `deploy/docker-compose.dev.yml`)
@@ -71,6 +73,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **RabbitMQ** | 4.4.0 | Hàng đợi việc: API trả lời ngay, việc chậm (gửi email, sau này chuyển mã video, đọc file đề) để worker làm sau. Trang quản trị: http://127.0.0.1:15672 |
 | **Mailpit** | 1.33.0 | Hộp thư giả khi dev: bắt mọi email worker gửi để xem OTP / link tại http://127.0.0.1:8025, không gửi ra ngoài |
 | **Garage** | 2.5.0 | Lưu file tương thích S3, tự host: ảnh trong bài học / câu hỏi / hỏi đáp, ảnh / PDF bài làm của học sinh, ảnh đại diện giáo viên. Trình duyệt upload / tải thẳng bằng presigned URL (API chỉ ký link và kiểm tra file), đi qua đường dẫn `/files/*` cùng domain |
+| **LiveKit** | 1.13.11 | Phòng học trực tuyến tự host (WebRTC SFU): video / âm thanh / màn hình đi thẳng giữa trình duyệt và LiveKit, api chỉ cấp token theo vai trò và đổi quyền phát. Dev: `ws://127.0.0.1:7880` |
 
 ### Bảo mật đăng nhập
 
@@ -87,7 +90,6 @@ Backend là một *modular monolith* gồm 3 crate:
 | Công nghệ | Tác dụng |
 |---|---|
 | **Caddy** 2.11.4 | Reverse proxy production: tự cấp HTTPS, phục vụ file tĩnh của frontend, chuyển `/api` cho backend — đã cấu hình ở `deploy/Caddyfile` |
-| **LiveKit** | Dạy trực tiếp: video, âm thanh, chia sẻ màn hình (WebRTC) |
 
 ## Chạy môi trường dev
 
@@ -167,6 +169,7 @@ Ví dụ hai máy cùng mạng LAN / VPN, máy A có IP `10.0.0.1`:
 - Service lưu dữ liệu (Postgres, Valkey, RabbitMQ) chỉ chạy **trên một máy**; worker chạy bao nhiêu máy cũng được, cùng lấy việc từ một hàng đợi.
 - Qua Internet: nối các máy bằng WireGuard / Tailscale rồi dùng IP VPN như IP LAN. **Không** mở Postgres / Valkey / RabbitMQ ra IP public.
 - Lưu file: thêm `garage` vào `COMPOSE_PROFILES`, điền `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` trong `deploy/.env`, sau lần `up` đầu tiên chạy `sh deploy/garage/init.sh prod`. Caddy chuyển `/files/*` vào Garage. **Bắt buộc sao lưu** volume `garagedata` (một node chỉ có một bản dữ liệu).
+- Phòng học trực tuyến: thêm `livekit` vào `COMPOSE_PROFILES`, điền `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_KEYS` trong `deploy/.env`; máy chạy LiveKit cần IP public, mở **7881/tcp** và **7882/udp**. Trình duyệt vào qua `wss://<tên miền>/rtc` (Caddy chuyển vào LiveKit). Chưa cấu hình thì buổi học chỉ dùng link họp ngoài.
 - Image backend build từ [`backend/Dockerfile`](backend/Dockerfile) (một lần build ra `sls-api` và `sls-worker`, image distroless chạy user không phải root). Migration tự chạy khi api khởi động.
 
 ## Test

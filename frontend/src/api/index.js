@@ -288,3 +288,27 @@ export const publicApi = {
   /** key: username hoặc id */
   teacher: (key) => http.get(`/public/teachers/${encodeURIComponent(key)}`),
 };
+
+/** Phòng học trực tuyến (đợt 6, LiveKit). */
+export const liveApi = {
+  status: () => http.get('/live/status'),
+  /** → { url, token, room, identity, name, role, session } */
+  join: (id) => http.post(`/sessions/${id}/live/join`),
+  /** data: { identity, microphone, camera, screen } — giáo viên cho / thu quyền phát */
+  media: (id, data) => http.post(`/sessions/${id}/live/media`, data),
+  remove: (id, identity) => http.post(`/sessions/${id}/live/remove`, { identity }),
+  end: (id) => http.post(`/sessions/${id}/live/end`),
+  turnStart: (id, identity) => http.post(`/sessions/${id}/live/board-turns/start`, { identity }),
+  turnEnd: (id, identity) => http.post(`/sessions/${id}/live/board-turns/end`, { identity }),
+  guestLink: (id) => http.post(`/sessions/${id}/live/guest-link`),
+  guests: (id) => http.get(`/sessions/${id}/live/guests`),
+  decide: (id, guestId, admit) => http.post(`/sessions/${id}/live/guests/${guestId}/decide`, { admit }),
+  decideAll: (id, admit) => http.post(`/sessions/${id}/live/guests/decide-all`, { admit }),
+  savePoll: (id, data) => http.post(`/sessions/${id}/live/polls`, data),
+  saveBoard: (id, data) => http.put(`/sessions/${id}/live/board`, data),
+  boardData: (id) => http.get(`/sessions/${id}/live/board`),
+  records: (id) => http.get(`/sessions/${id}/live/records`),
+  // Khách (không cần đăng nhập)
+  guestJoin: (id, key, name) => http.post(`/live/guest/${id}/join`, { key, name }),
+  guestState: (guestId, token) => http.get(`/live/guest/state/${guestId}`, { token }),
+};

@@ -27,6 +27,12 @@
 		reverse_proxy {$API_UPSTREAM}
 	}
 
+	# Phòng học trực tuyến: trình duyệt kết nối LiveKit qua wss://<domain>/rtc (cùng domain + chứng chỉ).
+	# Media (WebRTC) đi thẳng tới máy LiveKit qua 7881/tcp, 7882/udp — không qua Caddy.
+	handle /rtc* {
+		reverse_proxy {$LIVEKIT_UPSTREAM}
+	}
+
 	# Trang công khai cho máy tìm kiếm / chia sẻ mạng xã hội (HTML do api dựng sẵn) + sitemap / robots.
 	@seo path /p/* /sitemap.xml /robots.txt
 	handle @seo {

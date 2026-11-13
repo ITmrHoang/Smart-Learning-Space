@@ -9,6 +9,7 @@ pub mod coursework;
 pub mod files;
 pub mod health;
 pub mod learning;
+pub mod live;
 pub mod sso;
 pub mod teachers;
 pub mod teaching;

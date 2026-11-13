@@ -29,8 +29,22 @@
           </div>
         </div>
 
-        <!-- Vào học -->
-        <div v-if="s.status !== 'cancelled' && phase !== 'ended'" class="join">
+        <!-- Vào học: phòng của hệ thống -->
+        <div v-if="s.room === 'live' && s.status !== 'cancelled' && phase !== 'ended'" class="join">
+          <template v-if="s.canJoin || (s.isOwner && teacherCanOpen)">
+            <RouterLink class="join-btn" :to="{ name: 'live-room', params: { id: s.id } }">{{ s.isOwner ? 'Mở phòng học' : 'Vào học' }}</RouterLink>
+            <span class="muted small">Phòng học trực tuyến của hệ thống: video, bảng, giơ tay, bình chọn.</span>
+          </template>
+          <template v-else>
+            <span class="join-btn disabled" aria-disabled="true">Vào học</span>
+            <span class="muted small">
+              {{ s.isOwner ? 'Mở phòng được từ 60 phút trước giờ học' : `Mở lúc ${formatTime(s.joinOpensAt)} (${JOIN_EARLY_MINUTES} phút trước giờ học)` }} ·
+              {{ timeUntil(s.startsAt, now) }}
+            </span>
+          </template>
+        </div>
+        <!-- Vào học: link họp ngoài -->
+        <div v-else-if="s.status !== 'cancelled' && phase !== 'ended'" class="join">
           <template v-if="s.canJoin">
             <a v-if="s.meetingUrl" class="join-btn" :href="s.meetingUrl" target="_blank" rel="noopener" @click="join">Vào học</a>
             <hui-button v-else :loading="joining" @hui-click="join">Vào học (điểm danh)</hui-button>
@@ -64,6 +78,8 @@
           </ul>
         </div>
       </section>
+
+      <LiveRecords v-if="s.room === 'live'" :sessionId="s.id" />
 
       <!-- Giáo viên: người được mời, trả lời, điểm danh -->
       <section v-if="s.isOwner" class="panel stack">
@@ -117,6 +133,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { sessionApi, teachingApi } from '../../api';
+import LiveRecords from '../../components/live/LiveRecords.vue';
 import SessionFormModal from '../../components/teaching/SessionFormModal.vue';
 import { formatDateTime } from '../../utils/form';
 import {
@@ -150,6 +167,8 @@ let timer = null;
 
 const phase = computed(() => (s.value ? sessionPhase(s.value, now.value) : 'upcoming'));
 const untilText = computed(() => (phase.value === 'upcoming' || phase.value === 'soon' ? timeUntil(s.value.startsAt, now.value) : ''));
+/** Giáo viên mở phòng học của hệ thống được từ 60 phút trước giờ học (khớp backend). */
+const teacherCanOpen = computed(() => !!s.value && now.value >= new Date(s.value.startsAt).getTime() - 60 * 60_000);
 const inviteeNames = computed(() => {
   const v = s.value?.invitees;
   if (!v) return [];

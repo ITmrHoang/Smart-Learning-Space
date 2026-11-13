@@ -140,6 +140,9 @@ export const routes = [
       { path: 'lien-ket', name: 'sso-link', component: () => import('../pages/auth/SsoLinkPage.vue') },
     ],
   },
+  // Phòng học trực tuyến: toàn màn hình (không có menu); khách vào bằng link không cần đăng nhập.
+  { path: '/live/:id', name: 'live-room', component: () => import('../pages/live/LiveRoomPage.vue'), meta: { auth: true } },
+  { path: '/vao-hoc/:id', name: 'guest-join', component: () => import('../pages/live/GuestJoinPage.vue') },
   { path: '/trang-thai', name: 'status', component: () => import('../pages/StatusPage.vue') },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../pages/NotFoundPage.vue') },
 ];

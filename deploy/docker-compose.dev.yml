@@ -72,6 +72,17 @@ services:
       - ./garage/garage.dev.toml:/etc/garage.toml:ro
       - garagedata:/var/lib/garage
 
+  # Phòng học trực tuyến (WebRTC SFU). Trình duyệt kết nối ws://127.0.0.1:7880.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: ["--config", "/etc/livekit.yaml", "--node-ip", "127.0.0.1"]
+    ports:
+      - "127.0.0.1:7880:7880" # API + WebSocket
+      - "127.0.0.1:7881:7881" # WebRTC qua TCP
+      - "127.0.0.1:7882:7882/udp" # WebRTC qua UDP
+    volumes:
+      - ./livekit/livekit.dev.yaml:/etc/livekit.yaml:ro
+
 volumes:
   pgdata:
   valkeydata:

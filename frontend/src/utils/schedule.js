@@ -8,6 +8,7 @@ export const ACCESS_LABELS = {
   invited: 'Chỉ người được mời',
   members: 'Mọi thành viên lớp học',
   logged_in: 'Mọi tài khoản đã đăng nhập',
+  public_link: 'Khách có link (phòng chờ, giáo viên duyệt)',
 };
 
 export const RSVP_LABELS = { yes: 'Tham gia', no: 'Không tham gia' };

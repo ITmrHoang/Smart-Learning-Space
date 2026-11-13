@@ -63,6 +63,9 @@ pub struct SessionFields {
     pub access: Access,
     #[validate(length(max = 500), custom(function = "validate_http_url"))]
     pub meeting_url: Option<String>,
+    /// Phòng học: link họp ngoài (mặc định) hoặc phòng trực tuyến của hệ thống.
+    #[serde(default)]
+    pub room: Room,
     /// Nhắc trước bao nhiêu phút (0 = không nhắc).
     #[validate(range(min = 0, max = 10080, message = "Nhắc trước tối đa 7 ngày."))]
     #[serde(default = "default_remind")]
@@ -70,6 +73,26 @@ pub struct SessionFields {
     #[serde(default)]
     #[validate(length(max = 20, message = "Tối đa 20 bài."))]
     pub lesson_ids: Vec<Uuid>,
+}
+
+/// Phòng học của buổi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Room {
+    /// Link họp ngoài (Google Meet / Zoom…).
+    #[default]
+    External,
+    /// Phòng LiveKit của hệ thống (video, bảng thông minh, giơ tay…).
+    Live,
+}
+
+impl Room {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Room::External => "external",
+            Room::Live => "live",
+        }
+    }
 }
 
 fn default_remind() -> i32 {
@@ -154,6 +177,8 @@ pub struct SessionSummary {
     pub ends_at: DateTime<Utc>,
     pub status: String,
     pub access: String,
+    /// external | live
+    pub room: String,
     pub teacher_name: String,
     pub is_owner: bool,
     /// Trả lời của người xem (học sinh).
@@ -172,6 +197,7 @@ impl SessionSummary {
             ends_at: s.ends_at,
             status: s.status.clone(),
             access: s.access.clone(),
+            room: s.room.clone(),
             teacher_name: s.owner_name.clone(),
             is_owner: s.owner_id == viewer,
             my_rsvp,
@@ -247,6 +273,8 @@ pub struct UpdateSessionResponse {
 #[serde(rename_all = "camelCase")]
 pub struct JoinResponse {
     pub meeting_url: Option<String>,
+    /// live → mở phòng trong ứng dụng (`/live/{id}`), không dùng link ngoài.
+    pub room: String,
 }
 
 pub type Candidate = StudentRef;

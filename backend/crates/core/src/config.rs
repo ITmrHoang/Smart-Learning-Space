@@ -30,6 +30,19 @@ pub struct Config {
     pub max_sessions: u32,
     /// Garage / S3; `None` khi chưa cấu hình (upload file báo lỗi `STORAGE_DISABLED`).
     pub storage: Option<StorageConfig>,
+    /// LiveKit (phòng học trực tuyến); `None` khi chưa cấu hình (chỉ dùng được link họp ngoài).
+    pub live: Option<LiveConfig>,
+}
+
+/// Máy chủ LiveKit tự host.
+#[derive(Clone)]
+pub struct LiveConfig {
+    /// Địa chỉ api gọi LiveKit (đổi quyền, mời ra): dev `http://127.0.0.1:7880`.
+    pub url: String,
+    /// Địa chỉ trình duyệt kết nối (WebSocket): dev `ws://127.0.0.1:7880`, production `wss://live.example.com`.
+    pub public_url: String,
+    pub api_key: String,
+    pub api_secret: String,
 }
 
 /// Ứng dụng OAuth đăng ký ở nhà cung cấp (Google Cloud Console / Microsoft Entra).
@@ -66,6 +79,7 @@ impl fmt::Debug for Config {
             .field("sso_microsoft", &self.sso_microsoft.as_ref().map(|p| &p.issuer))
             .field("max_sessions", &self.max_sessions)
             .field("storage", &self.storage.as_ref().map(|s| &s.endpoint))
+            .field("live", &self.live.as_ref().map(|l| &l.public_url))
             .finish_non_exhaustive()
     }
 }
@@ -175,6 +189,30 @@ impl Config {
             }
         };
 
+        let live = match (get("LIVEKIT_URL"), get("LIVEKIT_API_KEY"), get("LIVEKIT_API_SECRET")) {
+            (Some(url), Some(api_key), Some(api_secret)) => {
+                if api_secret.len() < 32 {
+                    return Err(ConfigError::Invalid {
+                        name: "LIVEKIT_API_SECRET",
+                        reason: "cần ít nhất 32 ký tự".into(),
+                    });
+                }
+                let url = url.trim_end_matches('/').to_string();
+                let public_url = get("LIVEKIT_PUBLIC_URL")
+                    .map(|v| v.trim_end_matches('/').to_string())
+                    // Mặc định cùng domain với ứng dụng: Caddy chuyển /rtc* vào LiveKit.
+                    .unwrap_or_else(|| app_base_url.replacen("http", "ws", 1));
+                Some(LiveConfig { url, public_url, api_key, api_secret })
+            }
+            (_, None, None) => None,
+            _ => {
+                return Err(ConfigError::Invalid {
+                    name: "LIVEKIT_URL",
+                    reason: "cần khai báo đủ LIVEKIT_URL, LIVEKIT_API_KEY và LIVEKIT_API_SECRET".into(),
+                });
+            }
+        };
+
         Ok(Self {
             bind_addr: get("BIND_ADDR").unwrap_or_else(|| "127.0.0.1:8080".into()),
             database_url: required("DATABASE_URL")?,
@@ -197,6 +235,7 @@ impl Config {
             sso_microsoft,
             max_sessions,
             storage,
+            live,
         })
     }
 
@@ -298,6 +337,29 @@ mod tests {
         assert!(matches!(
             Config::from_lookup(lookup(&pairs)).unwrap_err(),
             ConfigError::Invalid { name: "S3_ENDPOINT", .. }
+        ));
+    }
+
+    #[test]
+    fn cau_hinh_livekit() {
+        let base = [("DATABASE_URL", "postgres://x"), ("JWT_SECRET", "0123456789abcdef0123456789abcdef")];
+        assert!(Config::from_lookup(lookup(&base)).unwrap().live.is_none());
+        let mut pairs = base.to_vec();
+        pairs.extend([
+            ("LIVEKIT_URL", "http://livekit:7880/"),
+            ("LIVEKIT_API_KEY", "sls"),
+            ("LIVEKIT_API_SECRET", "0123456789abcdef0123456789abcdef"),
+        ]);
+        let live = Config::from_lookup(lookup(&pairs)).unwrap().live.unwrap();
+        assert_eq!(live.url, "http://livekit:7880");
+        assert_eq!(live.public_url, "ws://127.0.0.1:5173");
+        pairs.push(("LIVEKIT_PUBLIC_URL", "wss://live.example.com"));
+        assert_eq!(Config::from_lookup(lookup(&pairs)).unwrap().live.unwrap().public_url, "wss://live.example.com");
+        let mut short = base.to_vec();
+        short.extend([("LIVEKIT_URL", "http://x"), ("LIVEKIT_API_KEY", "k"), ("LIVEKIT_API_SECRET", "ngan")]);
+        assert!(matches!(
+            Config::from_lookup(lookup(&short)).unwrap_err(),
+            ConfigError::Invalid { name: "LIVEKIT_API_SECRET", .. }
         ));
     }
 

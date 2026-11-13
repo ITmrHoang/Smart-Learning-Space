@@ -253,6 +253,57 @@ Migration `20261113000002_files_homework_tutoring_profiles.sql` (`files`, `assig
 
 **Dữ liệu thử thêm trong DB dev:** bài tập "Bài tập về nhà — Hệ phương trình" (bước cuối của lộ trình "Toán 9", `hs.thu` đã nộp, đã chấm 9,5), lịch học kèm "Học kèm Toán 9 — ôn thi vào 10" của admin (T2 / T3 19:00–21:00, `hs.thu` đã được nhận buổi 19:00 thứ Hai 16/11), giáo viên `gv.lan` (cùng mật khẩu dev với `hs.thu`, có hồ sơ công khai).
 
+## Đợt 6 — Dạy trực tiếp trong ứng dụng (G5: LiveKit, tương tác, bảng thông minh WB1, khách) (bắt đầu 2026-11-13)
+
+> Yêu cầu: "làm tiếp các tính năng còn lại". Theo `analyst.md` mục 7, sau G2–G4 là G5: phòng live tự host (LiveKit), giơ tay → mời lên bảng, chat, bình chọn / quiz nhanh, điểm danh, bảng thông minh WB1, buổi mở cho khách có phòng chờ.
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M26** | Phòng học của hệ thống (LiveKit 1.13 tự host): buổi học chọn "phòng của hệ thống" hoặc link họp ngoài; api cấp token theo vai trò (giáo viên phát mọi nguồn + quản trị phòng; học sinh chỉ xem / nghe / gửi dữ liệu; khách chỉ xem / nghe); vào phòng = điểm danh; giáo viên cho / thu quyền bật mic, camera, chia sẻ màn hình ngay lập tức, mời ra, kết thúc buổi | ✅ Xong (2026-11-13) |
+| **M27** | Tương tác: giơ tay ("Em giải" / "Em hỏi") → hàng đợi theo thứ tự cho giáo viên → **mời lên bảng** (+ bật mic); chat (giáo viên tắt được); **bình chọn / quiz nhanh** (kết quả hiện ngay, quiz công bố đáp án khi đóng); khung chính đổi giữa bảng / màn hình / camera; lưu kết quả bình chọn, lượt lên bảng | ✅ Xong (2026-11-13) |
+| **M28** | Bảng thông minh WB1: H-UI thêm `hui-whiteboard` (bút, bút dạ quang, tẩy, đoạn thẳng, mũi tên, hình chữ nhật, elip, chữ, màu, độ dày, hoàn tác / làm lại, nhiều trang, xuất PNG); đồng bộ trong phòng; giáo viên cấp quyền vẽ cho học sinh được mời; lưu ảnh từng trang sau buổi để học sinh xem lại | ✅ Xong (2026-11-13) |
+| **M29** | Buổi mở cho khách (`public_link`, `analyst.md` 4.3): link có khóa ngẫu nhiên (đổi được), khách nhập tên → **phòng chờ** → giáo viên duyệt (từng người / tất cả) → vào phòng chỉ xem và nghe, gắn nhãn "Khách"; giới hạn số khách, giới hạn số lần xin vào theo IP; mời ra thì không vào lại được | ✅ Xong (2026-11-13) |
+
+**Để sau:** ghi hình buổi live (LiveKit Egress → Garage → HLS, D4), WB2 (hệ trục + đồ thị từ công thức, hình học, hình khối — `hui-plot`, `hui-solid`), bảng riêng từng học sinh, PDF làm nền bảng, công thức trên bảng, đồng bộ bảng bằng CRDT (Yjs / `yrs`) thay cho kênh dữ liệu của LiveKit, captcha (ALTCHA) cho khách, trợ giảng (D12), thông báo realtime qua WebSocket, tách `hui-video-grid` / `hui-live-controls` / `hui-poll` sang H-UI (đang là component Vue trong app).
+
+### Kết quả đợt 6 (2026-11-13)
+
+Migration `20261113000003_live.sql` (`sessions` thêm `room` external | live, mức truy cập `public_link`, `guest_key_hash`, `guest_limit`, `live_started_at`, `live_ended_at`; bảng `live_guests`, `live_polls`, `live_board_pages`, `live_board_turns`). Mã: module `live` (`livekit.rs`: token JWT HS256 + gọi RoomService qua Twirp, không thêm crate), `sessions::enter_live` / `live_window` / `own_live`; controller `api/src/controllers/live.rs`. Frontend: `composables/useLiveRoom.js`, `components/live/{LiveRoom, VideoTile, LivePoll, LiveRecords}.vue`, `pages/live/{LiveRoomPage, GuestJoinPage}.vue`, `utils/live.js` (giao thức tin nhắn); thư viện `livekit-client` 2.23.0. Hạ tầng: LiveKit v1.13.11 trong `deploy/docker-compose.dev.yml` + `deploy/docker-compose.yml` (profile `livekit`), `deploy/livekit/{livekit.dev.yaml, livekit.yaml}`, Caddy chuyển `/rtc*` vào LiveKit (cùng domain).
+
+| API | Mô tả |
+|---|---|
+| `GET /api/live/status` | Đã cấu hình LiveKit chưa |
+| `POST /api/sessions/{id}/live/join` | Vào phòng → `{ url, token, room, identity, name, role, session }` (điểm danh học sinh) |
+| `POST …/live/media` (`{identity, microphone, camera, screen}`) · `…/live/remove` · `…/live/end` | Giáo viên đổi quyền phát, mời ra, kết thúc (đóng phòng) |
+| `POST …/live/board-turns/start\|end` · `POST …/live/polls` · `PUT\|GET …/live/board` · `GET …/live/records` | Lượt lên bảng, kết quả bình chọn, ảnh + dữ liệu bảng, xem lại sau buổi |
+| `POST …/live/guest-link` · `GET …/live/guests` · `POST …/live/guests/{id}/decide` · `POST …/live/guests/decide-all` | Link khách, phòng chờ |
+| `POST /api/live/guest/{sessionId}/join` (`{key, name}`) · `GET /api/live/guest/state/{guestId}?token=` | Khách (không cần đăng nhập) xin vào, hỏi trạng thái → token khi được duyệt |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Token | api ký token LiveKit (HS256, sống 6 giờ) bằng `jsonwebtoken` có sẵn; vai trò nằm trong `metadata` do server ký, người tham gia không sửa được (`canUpdateOwnMetadata = false`). Danh tính `u:{id}` / `g:{id}` |
+| Quyền phát | Học sinh vào phòng không phát được gì; giáo viên bấm "Cho bật mic" → api gọi `UpdateParticipant` của LiveKit (đổi quyền ngay, không cần vào lại), học sinh tự bật mic. Khách: chỉ nhận (`canPublishData = false` → không chat / giơ tay / bình chọn) |
+| Đồng bộ trong phòng | Giơ tay, chat, bình chọn, thao tác bảng đi qua **kênh dữ liệu của LiveKit** (reliable) — không phải dựng WebSocket riêng. Máy nhận chỉ chấp nhận tin "của giáo viên" khi người gửi có vai trò giáo viên (LiveKit xác thực danh tính người gửi), thao tác bảng chỉ từ giáo viên + học sinh đang được mời lên bảng. Người vào sau nhận ảnh chụp bảng / bình chọn từ giáo viên qua text stream. Khác `analyst.md` (Yjs + `yrs` + WebSocket): đủ cho WB1 và quy mô 30–60 người; chuyển sang CRDT khi làm WB2 / bảng riêng từng học sinh |
+| Giờ vào phòng | Học sinh / khách: từ 10 phút trước giờ học tới 30 phút sau giờ kết thúc; giáo viên mở phòng sớm 60 phút |
+| Kết thúc | Giáo viên bấm "Kết thúc buổi": lưu ảnh từng trang bảng (Garage) + dữ liệu nét vẽ, đóng phòng (`DeleteRoom`) → học sinh / khách thấy "Buổi học đã kết thúc"; trang buổi học hiện "Lưu lại từ buổi học" (ảnh bảng, bình chọn / quiz, lượt lên bảng cho giáo viên) |
+| Học kèm 1-1 | Lịch học kèm không có link họp → buổi học kèm tự dùng phòng của hệ thống (khi đã cấu hình LiveKit) |
+| Dev trên Windows | LiveKit chạy trong Docker với `--node-ip 127.0.0.1`, mở 7880 (WebSocket), 7881/tcp, 7882/udp trên 127.0.0.1; trình duyệt kết nối `ws://127.0.0.1:7880` |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 71 / 71 đạt + 1 test Garage thật (thêm: token LiveKit đúng định dạng, cấu hình `LIVEKIT_*`) |
+| Backend integration test | 96 / 96 đạt — thêm `live` 3 với **LiveKit giả** (server HTTP kiểm tra token quản trị + ghi lại các lần gọi RoomService): token giáo viên / học sinh đúng quyền, chưa tới giờ, người ngoài 404, điểm danh khi vào phòng, đổi quyền mic (`UpdateParticipant` đúng nguồn), lượt lên bảng, bình chọn (quiz phải có đáp án), lưu bảng, xem lại sau buổi, mời ra (`RemoveParticipant`), kết thúc (`DeleteRoom`); khách: sai khóa, phòng chờ, duyệt / từ chối / duyệt tất cả, token khách chỉ nhận, mời ra, đổi link; chưa cấu hình LiveKit |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 48 / 48 đạt (thêm giao thức tin nhắn, vai trò từ metadata, hàng đợi giơ tay, đếm phiếu, thời gian, tên ngắn); `npm run build` đạt |
+| H-UI | 168 unit test (thêm 5 cho `hui-whiteboard`) + 3 story test đạt; `npm run build`, `check-cdn`, `check:types` đạt. `build:cdn` báo lỗi "module `hui-calendar/date-utils.js` bị gộp vào 2 nhóm (form, data)" — **có sẵn từ trước** (chạy trên bản H-UI chưa sửa cũng lỗi y hệt), không liên quan `hui-whiteboard` |
+| Trình duyệt (LiveKit thật) | Giáo viên mở phòng; học sinh (tab khác) vào → 2 người; giáo viên vẽ bút / hình chữ nhật / chữ → học sinh thấy ngay; học sinh giơ tay → giáo viên thấy hàng đợi → "Mời lên bảng" → học sinh vẽ (màu xanh) → giáo viên thấy; "Cho bật mic" → LiveKit đổi quyền, học sinh có nút "Bật mic" (pane của ứng dụng chặn thiết bị nên không thu âm thật); quiz 3 phương án có công thức → học sinh chọn → "Chính xác!"; link khách → khách nhập tên → phòng chờ → giáo viên "Cho vào" → khách thấy bảng (chỉ xem); "Kết thúc buổi" → trang buổi học hiện ảnh bảng + kết quả quiz. Sửa khi thử: chữ trên bảng bị ghi 2 lần (H-UI, thêm test), nút mic / camera của giáo viên không hiện (computed của Vue), thanh điều khiển bị kéo cao, học sinh / khách chỉ thấy "Mất kết nối" khi buổi kết thúc (giờ hiện đúng lý do) |
+
+**Chưa thử được trong pane của ứng dụng:** camera / mic / chia sẻ màn hình thật (pane chặn thiết bị) — phần phát / nhận video dùng thẳng API của `livekit-client`, cần thử lại trên trình duyệt thường với 2 máy.
+
+**Dữ liệu thử thêm trong DB dev:** buổi "Chữa bài hệ phương trình (trực tuyến)" (phòng của hệ thống, mở cho khách) của lớp "Toán 9", có ảnh bảng + 1 quiz đã lưu.
+
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)
 
 Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".
@@ -265,7 +316,8 @@ Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhi�
 | Worker gửi email qua SMTP có TLS: `SMTP_TLS` = `starttls` (mặc định, cổng 587) · `tls` (cổng 465) · `none` (Mailpit khi dev); kiểm tra chứng chỉ bằng bộ CA gói sẵn (`webpki-roots`), thêm CA riêng bằng `SMTP_CA_FILE`. Test: 8 unit test cấu hình + gửi thật qua Mailpit bật STARTTLS và TLS với CA tự tạo | ✅ (2026-11-08) |
 | Sao lưu Postgres theo lịch (`pg_dump`) | Chưa làm |
 | Garage (lưu file): profile `garage`, `deploy/garage/init.sh prod`, Caddy chuyển `/files/*` | ✅ (2026-11-13, đợt 5) |
-| `import-worker`, `media-worker`, `ai-service`, LiveKit: thêm vào compose khi làm các module tương ứng | Để sau |
+| LiveKit (phòng học trực tuyến): profile `livekit`, Caddy chuyển `/rtc*`, mở 7881/tcp + 7882/udp | ✅ (2026-11-13, đợt 6) |
+| `import-worker`, `media-worker` (ghi hình → HLS), `ai-service`: thêm vào compose khi làm các module tương ứng | Để sau |
 
 ### M6 — SSO
 

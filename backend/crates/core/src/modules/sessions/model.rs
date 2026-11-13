@@ -8,6 +8,8 @@ pub enum Access {
     Invited,
     Members,
     LoggedIn,
+    /// Khách vào bằng link (phòng chờ, giáo viên duyệt) — chỉ dùng với phòng học của hệ thống.
+    PublicLink,
 }
 
 impl Access {
@@ -16,6 +18,7 @@ impl Access {
             Access::Invited => "invited",
             Access::Members => "members",
             Access::LoggedIn => "logged_in",
+            Access::PublicLink => "public_link",
         }
     }
 }
@@ -33,6 +36,8 @@ pub struct SessionRow {
     pub status: String,
     pub access: String,
     pub meeting_url: Option<String>,
+    /// external (link họp ngoài) | live (phòng LiveKit của hệ thống)
+    pub room: String,
     pub remind_minutes: i32,
     pub ics_sequence: i32,
     pub class_title: Option<String>,

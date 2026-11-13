@@ -42,6 +42,7 @@ pub fn build_router(ctx: AppContext) -> Router {
         .merge(controllers::community::routes())
         .merge(controllers::files::routes())
         .merge(controllers::coursework::routes())
+        .merge(controllers::live::routes())
         .nest(
             "/teaching",
             controllers::teaching::routes()
