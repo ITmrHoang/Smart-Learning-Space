@@ -109,6 +109,8 @@ pub struct ClassCard {
     pub mode: String,
     pub visibility: String,
     pub enrollment: String,
+    /// Giáo viên chủ lớp (link trang hồ sơ giáo viên).
+    pub teacher_id: Uuid,
     pub teacher_name: String,
     pub student_count: i64,
     pub step_count: i64,
@@ -130,6 +132,7 @@ impl ClassCard {
             mode: c.mode,
             visibility: c.visibility,
             enrollment: c.enrollment,
+            teacher_id: c.owner_id,
             teacher_name: c.owner_name,
             student_count: c.student_count,
             step_count: c.step_count,
@@ -232,6 +235,18 @@ pub struct StepInput {
     pub session_id: Option<Uuid>,
     #[serde(default)]
     pub deck_id: Option<Uuid>,
+    #[serde(default)]
+    pub assignment_id: Option<Uuid>,
+    /// Bước bài tập: hạn nộp (bỏ trống = không có hạn).
+    #[serde(default)]
+    pub due_at: Option<DateTime<Utc>>,
+    /// Lộ trình riêng: chỉ các nhóm / học sinh này thấy bước (cả hai rỗng = cả lớp).
+    #[serde(default)]
+    #[validate(length(max = 50, message = "Tối đa 50 nhóm."))]
+    pub audience_group_ids: Vec<Uuid>,
+    #[serde(default)]
+    #[validate(length(max = 200, message = "Tối đa 200 học sinh."))]
+    pub audience_user_ids: Vec<Uuid>,
     #[serde(default = "default_unlock")]
     pub unlock: Unlock,
     #[validate(range(min = 0.0, max = 1000.0, message = "Điểm đạt từ 0 đến 1000."))]
@@ -260,6 +275,10 @@ pub struct DraftStep {
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
     pub deck_id: Option<Uuid>,
+    pub assignment_id: Option<Uuid>,
+    pub due_at: Option<DateTime<Utc>>,
+    pub audience_group_ids: Vec<Uuid>,
+    pub audience_user_ids: Vec<Uuid>,
     /// Bước buổi học: giờ bắt đầu.
     pub starts_at: Option<DateTime<Utc>>,
     pub unlock: Unlock,
@@ -301,6 +320,13 @@ pub struct LearnStep {
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
     pub deck_id: Option<Uuid>,
+    pub assignment_id: Option<Uuid>,
+    /// Bài tập: hạn nộp, trạng thái bài nộp (submitted | returned | graded), điểm.
+    pub due_at: Option<DateTime<Utc>>,
+    pub homework_status: Option<String>,
+    pub homework_score: Option<f64>,
+    /// Bước chỉ dành cho một số nhóm / học sinh (giáo viên xem thử thấy mọi bước).
+    pub restricted: bool,
     /// Bộ thẻ: số thẻ đến hạn ôn + thẻ chưa học.
     pub due_cards: Option<i64>,
     pub starts_at: Option<DateTime<Utc>>,
@@ -383,6 +409,10 @@ pub struct ProgressStep {
 pub struct ProgressCell {
     pub step_id: Uuid,
     pub done: bool,
+    /// Bước có giao cho học sinh này không (lộ trình riêng).
+    pub assigned: bool,
+    /// Bài tập: submitted | returned | graded.
+    pub homework_status: Option<String>,
     pub score: Option<f64>,
     pub max_score: Option<f64>,
 }

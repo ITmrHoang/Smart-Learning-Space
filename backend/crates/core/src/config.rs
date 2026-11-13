@@ -2,6 +2,8 @@
 
 use std::{fmt, time::Duration};
 
+use crate::storage::StorageConfig;
+
 #[derive(Clone)]
 pub struct Config {
     pub bind_addr: String,
@@ -26,6 +28,8 @@ pub struct Config {
     pub sso_redirect_base: String,
     /// Số thiết bị đăng nhập cùng lúc tối đa của một tài khoản; `0` = không giới hạn.
     pub max_sessions: u32,
+    /// Garage / S3; `None` khi chưa cấu hình (upload file báo lỗi `STORAGE_DISABLED`).
+    pub storage: Option<StorageConfig>,
 }
 
 /// Ứng dụng OAuth đăng ký ở nhà cung cấp (Google Cloud Console / Microsoft Entra).
@@ -61,6 +65,7 @@ impl fmt::Debug for Config {
             .field("sso_google", &self.sso_google.as_ref().map(|p| &p.issuer))
             .field("sso_microsoft", &self.sso_microsoft.as_ref().map(|p| &p.issuer))
             .field("max_sessions", &self.max_sessions)
+            .field("storage", &self.storage.as_ref().map(|s| &s.endpoint))
             .finish_non_exhaustive()
     }
 }
@@ -149,6 +154,27 @@ impl Config {
                 .map_err(|e| ConfigError::Invalid { name: "MAX_SESSIONS_PER_USER", reason: e.to_string() })?,
         };
 
+        let storage = match (get("S3_ENDPOINT"), get("S3_ACCESS_KEY_ID"), get("S3_SECRET_ACCESS_KEY")) {
+            (Some(endpoint), Some(access_key), Some(secret_key)) => Some(StorageConfig {
+                endpoint: endpoint.trim_end_matches('/').to_string(),
+                public_url: get("S3_PUBLIC_URL")
+                    .map(|v| v.trim_end_matches('/').to_string())
+                    .unwrap_or_else(|| app_base_url.clone()),
+                bucket: get("S3_BUCKET").unwrap_or_else(|| "files".into()),
+                region: get("S3_REGION").unwrap_or_else(|| "garage".into()),
+                access_key,
+                secret_key,
+            }),
+            // Chưa có khóa truy cập = chưa dùng Garage (compose production luôn đặt sẵn S3_ENDPOINT).
+            (_, None, None) => None,
+            _ => {
+                return Err(ConfigError::Invalid {
+                    name: "S3_ENDPOINT",
+                    reason: "cần khai báo đủ S3_ENDPOINT, S3_ACCESS_KEY_ID và S3_SECRET_ACCESS_KEY".into(),
+                });
+            }
+        };
+
         Ok(Self {
             bind_addr: get("BIND_ADDR").unwrap_or_else(|| "127.0.0.1:8080".into()),
             database_url: required("DATABASE_URL")?,
@@ -170,6 +196,7 @@ impl Config {
             sso_google,
             sso_microsoft,
             max_sessions,
+            storage,
         })
     }
 
@@ -246,6 +273,32 @@ mod tests {
         pairs.push(("SSO_GOOGLE_CLIENT_ID", "gid"));
         let err = Config::from_lookup(lookup(&pairs)).unwrap_err();
         assert!(matches!(err, ConfigError::Invalid { name: "SSO_GOOGLE_CLIENT_ID", .. }));
+    }
+
+    #[test]
+    fn cau_hinh_kho_file() {
+        let base = [("DATABASE_URL", "postgres://x"), ("JWT_SECRET", "0123456789abcdef0123456789abcdef")];
+        assert!(Config::from_lookup(lookup(&base)).unwrap().storage.is_none());
+        let mut pairs = base.to_vec();
+        pairs.extend([
+            ("APP_BASE_URL", "https://sls.example.com/"),
+            ("S3_ENDPOINT", "http://garage:3900/"),
+            ("S3_ACCESS_KEY_ID", "GK1"),
+            ("S3_SECRET_ACCESS_KEY", "secret"),
+        ]);
+        let s = Config::from_lookup(lookup(&pairs)).unwrap().storage.unwrap();
+        assert_eq!(s.endpoint, "http://garage:3900");
+        assert_eq!(s.public_url, "https://sls.example.com");
+        assert_eq!((s.bucket.as_str(), s.region.as_str()), ("files", "garage"));
+        // Chỉ có địa chỉ, chưa có khóa → tắt; thiếu một trong hai khóa → báo lỗi.
+        let mut pairs = base.to_vec();
+        pairs.push(("S3_ENDPOINT", "http://garage:3900"));
+        assert!(Config::from_lookup(lookup(&pairs)).unwrap().storage.is_none());
+        pairs.push(("S3_ACCESS_KEY_ID", "GK1"));
+        assert!(matches!(
+            Config::from_lookup(lookup(&pairs)).unwrap_err(),
+            ConfigError::Invalid { name: "S3_ENDPOINT", .. }
+        ));
     }
 
     #[test]

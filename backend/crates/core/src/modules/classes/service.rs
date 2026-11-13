@@ -286,7 +286,10 @@ pub async fn detail(ctx: &AppContext, viewer: Option<&Actor>, id: Uuid) -> AppRe
     Ok(ClassDetail { card: ClassCard::new(class, status, viewer.map(|a| a.id)), outline })
 }
 
-async fn outline_of(ctx: &AppContext, steps: &[super::model::Step]) -> AppResult<Vec<OutlineStep>> {
+/// Mục lục công khai: chỉ các bước dành cho cả lớp (bước của lộ trình riêng không hiện).
+pub(super) async fn outline_of(ctx: &AppContext, steps: &[super::model::Step]) -> AppResult<Vec<OutlineStep>> {
+    let steps: Vec<&super::model::Step> = steps.iter().filter(|s| s.for_everyone()).collect();
+    let refs_all = super::path::load_refs(ctx, &steps.iter().map(|s| (*s).clone()).collect::<Vec<_>>()).await?;
     let lesson_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.lesson_id).collect();
     let refs = lessons::refs(ctx, &lesson_ids).await?;
     let exam_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.exam_id).collect();
@@ -296,14 +299,17 @@ async fn outline_of(ctx: &AppContext, steps: &[super::model::Step]) -> AppResult
         .map(|s| {
             let lesson = s.lesson_id.and_then(|id| refs.iter().find(|r| r.id == id));
             let exam = s.exam_id.and_then(|id| exams.iter().find(|e| e.id == id));
-            let fallback =
-                lesson.map(|l| l.title.clone()).or_else(|| exam.map(|e| e.title.clone())).unwrap_or_default();
+            let fallback = lesson
+                .map(|l| l.title.clone())
+                .or_else(|| exam.map(|e| e.title.clone()))
+                .unwrap_or_else(|| super::path::display_title_of(s, &refs_all));
             OutlineStep {
                 kind: s.kind,
                 title: if s.title.trim().is_empty() { fallback } else { s.title.clone() },
                 duration_minutes: lesson.and_then(|l| l.duration_minutes),
             }
         })
+        .filter(|o| !o.title.trim().is_empty())
         .collect())
 }
 

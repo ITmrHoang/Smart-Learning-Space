@@ -4,8 +4,11 @@
 //! - Bài: xong khi học sinh bấm "Đã học xong" (`step_progress`).
 //! - Đề: xong khi đã nộp ít nhất một lần và (nếu có `passScore`) điểm cao nhất ≥ `passScore`.
 //! - Buổi học: xong khi học sinh đã được điểm danh (bấm "Vào học" hoặc giáo viên đánh dấu có mặt).
+//! - Bộ thẻ: xong khi đã ôn mọi thẻ ít nhất một lần.
+//! - Bài tập: xong khi đã nộp (giáo viên trả lại để làm lại thì chưa xong).
 //! - Mốc: chỉ để chia giai đoạn, không tính vào tiến độ.
 //! - Mở khóa `previous`: phải xong bước bài / đề ngay trước (bỏ qua mốc).
+//! - Lộ trình riêng: bước có nhóm / học sinh được giao thì chỉ những học sinh đó thấy và tính vào tiến độ.
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,6 +30,7 @@ use crate::{
     context::AppContext,
     error::{AppError, AppResult},
     modules::{
+        assignments::{self, AssignmentRef},
         audit::{model::AuditEntry, service as audit},
         exams::{
             dto::AttemptSummary,
@@ -34,6 +38,7 @@ use crate::{
             service::{self as exams, AttemptContext},
         },
         flashcards::{self, DeckRef, ReviewInput, ReviewResult, StudyDeck},
+        groups,
         lessons::{model::LessonRef, service as lessons},
         notifications::{self, NotificationKind},
         sessions::{model::SessionRef, service as sessions},
@@ -65,6 +70,10 @@ pub fn compute_statuses(steps: &[Step], done: &HashSet<Uuid>) -> Vec<StepStatus>
     out
 }
 
+pub(super) fn display_title_of(s: &Step, refs: &Refs) -> String {
+    display_title(s, refs)
+}
+
 fn display_title(s: &Step, refs: &Refs) -> String {
     if !s.title.trim().is_empty() {
         return s.title.clone();
@@ -74,27 +83,95 @@ fn display_title(s: &Step, refs: &Refs) -> String {
         .or_else(|| s.exam_id.and_then(|id| refs.exams.get(&id).map(|e| e.title.clone())))
         .or_else(|| s.session_id.and_then(|id| refs.sessions.get(&id).map(|x| x.title.clone())))
         .or_else(|| s.deck_id.and_then(|id| refs.decks.get(&id).map(|d| d.title.clone())))
+        .or_else(|| s.assignment_id.and_then(|id| refs.assignments.get(&id).map(|a| a.title.clone())))
         .unwrap_or_default()
 }
 
-struct Refs {
+pub(super) struct Refs {
     lessons: HashMap<Uuid, LessonRef>,
     exams: HashMap<Uuid, ExamRef>,
     sessions: HashMap<Uuid, SessionRef>,
     decks: HashMap<Uuid, DeckRef>,
+    pub(super) assignments: HashMap<Uuid, AssignmentRef>,
 }
 
-async fn load_refs(ctx: &AppContext, steps: &[Step]) -> AppResult<Refs> {
+pub(super) async fn load_refs(ctx: &AppContext, steps: &[Step]) -> AppResult<Refs> {
     let lesson_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.lesson_id).collect();
     let exam_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.exam_id).collect();
     let session_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.session_id).collect();
     let deck_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.deck_id).collect();
+    let assignment_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.assignment_id).collect();
     Ok(Refs {
         lessons: lessons::refs(ctx, &lesson_ids).await?.into_iter().map(|l| (l.id, l)).collect(),
         exams: exams::refs(ctx, &exam_ids).await?.into_iter().map(|e| (e.id, e)).collect(),
         sessions: sessions::refs(ctx, &session_ids).await?.into_iter().map(|x| (x.id, x)).collect(),
         decks: flashcards::refs(ctx, &deck_ids).await?.into_iter().map(|d| (d.id, d)).collect(),
+        assignments: assignments::refs(ctx, &assignment_ids).await?.into_iter().map(|a| (a.id, a)).collect(),
     })
+}
+
+// ---------- Lộ trình riêng ----------
+
+/// Bước có dành cho học sinh này không (`groups`: các nhóm của giáo viên chủ lớp có học sinh này).
+pub fn assigned_to(step: &Step, user_id: Uuid, groups: &HashSet<Uuid>) -> bool {
+    step.for_everyone()
+        || step.audience_user_ids.contains(&user_id)
+        || step.audience_group_ids.iter().any(|g| groups.contains(g))
+}
+
+/// Các bước học sinh thấy (hàm thuần). Mốc bị bỏ khi mọi bước phía sau nó (tới mốc kế) đều không giao cho
+/// học sinh này; mốc không có bước nào phía sau thì giữ.
+pub fn visible_steps(steps: &[Step], user_id: Uuid, groups: &HashSet<Uuid>) -> Vec<Step> {
+    let mut out = Vec::with_capacity(steps.len());
+    let mut i = 0;
+    while i < steps.len() {
+        let s = &steps[i];
+        if s.kind != StepKind::Milestone {
+            if assigned_to(s, user_id, groups) {
+                out.push(s.clone());
+            }
+            i += 1;
+            continue;
+        }
+        let end = steps[i + 1..].iter().position(|x| x.kind == StepKind::Milestone).map_or(steps.len(), |p| i + 1 + p);
+        let section = &steps[i + 1..end];
+        if section.is_empty() || section.iter().any(|x| assigned_to(x, user_id, groups)) {
+            out.push(s.clone());
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Nhóm (của giáo viên chủ lớp) có học sinh này.
+async fn groups_of(ctx: &AppContext, class: &ClassRow, user_id: Uuid) -> AppResult<HashSet<Uuid>> {
+    Ok(groups::memberships(ctx, class.owner_id, Some(user_id)).await?.into_iter().map(|(g, _)| g).collect())
+}
+
+/// Bước của lộ trình đã xuất bản mà học sinh này thấy.
+async fn steps_for(ctx: &AppContext, class: &ClassRow, user_id: Uuid, steps: Vec<Step>) -> AppResult<Vec<Step>> {
+    if steps.iter().all(Step::for_everyone) {
+        return Ok(steps);
+    }
+    let groups = groups_of(ctx, class, user_id).await?;
+    Ok(visible_steps(&steps, user_id, &groups))
+}
+
+/// Học sinh đang học được giao bước này (lộ trình riêng); dùng cho nhắc hạn nộp, danh sách bài nộp.
+pub async fn assigned_students(ctx: &AppContext, class: &ClassRow, step: &Step) -> AppResult<Vec<Uuid>> {
+    let students: Vec<Uuid> =
+        repo::members(&ctx.db, class.id, Some("active")).await?.into_iter().map(|m| m.user_id).collect();
+    if step.for_everyone() {
+        return Ok(students);
+    }
+    let memberships = groups::memberships(ctx, class.owner_id, None).await?;
+    Ok(students
+        .into_iter()
+        .filter(|u| {
+            let groups: HashSet<Uuid> = memberships.iter().filter(|(_, m)| m == u).map(|(g, _)| *g).collect();
+            assigned_to(step, *u, &groups)
+        })
+        .collect())
 }
 
 fn deck_status(d: &DeckRef) -> &'static str {
@@ -119,6 +196,7 @@ async fn path_response(ctx: &AppContext, class: &ClassRow) -> AppResult<PathResp
             let exam = s.exam_id.and_then(|id| refs.exams.get(&id));
             let session = s.session_id.and_then(|id| refs.sessions.get(&id));
             let deck = s.deck_id.and_then(|id| refs.decks.get(&id));
+            let assignment = s.assignment_id.and_then(|id| refs.assignments.get(&id));
             let ref_status = match (lesson, exam) {
                 (Some(l), _) if l.archived => Some("archived"),
                 (Some(l), _) if l.published_revision_id.is_some() => Some("published"),
@@ -126,7 +204,10 @@ async fn path_response(ctx: &AppContext, class: &ClassRow) -> AppResult<PathResp
                 (_, Some(e)) if e.archived => Some("archived"),
                 (_, Some(e)) if e.item_count == 0 => Some("empty"),
                 (_, Some(_)) => Some("ready"),
-                _ => session.map(|x| x.status.as_str()).or_else(|| deck.map(deck_status)),
+                _ => session
+                    .map(|x| x.status.as_str())
+                    .or_else(|| deck.map(deck_status))
+                    .or_else(|| assignment.map(|a| if a.archived { "archived" } else { "ready" })),
             };
             DraftStep {
                 id: s.id,
@@ -136,6 +217,10 @@ async fn path_response(ctx: &AppContext, class: &ClassRow) -> AppResult<PathResp
                 exam_id: s.exam_id,
                 session_id: s.session_id,
                 deck_id: s.deck_id,
+                assignment_id: s.assignment_id,
+                due_at: s.due_at,
+                audience_group_ids: s.audience_group_ids.clone(),
+                audience_user_ids: s.audience_user_ids.clone(),
                 starts_at: session.map(|x| x.starts_at),
                 unlock: s.unlock,
                 pass_score: s.pass_score,
@@ -143,7 +228,8 @@ async fn path_response(ctx: &AppContext, class: &ClassRow) -> AppResult<PathResp
                     .map(|l| l.title.clone())
                     .or_else(|| exam.map(|e| e.title.clone()))
                     .or_else(|| session.map(|x| x.title.clone()))
-                    .or_else(|| deck.map(|d| d.title.clone())),
+                    .or_else(|| deck.map(|d| d.title.clone()))
+                    .or_else(|| assignment.map(|a| a.title.clone())),
                 ref_status: ref_status.map(str::to_string),
                 duration_minutes: lesson.and_then(|l| l.duration_minutes),
                 exam_kind: exam.map(|e| e.kind.clone()),
@@ -180,13 +266,44 @@ pub async fn save_path(ctx: &AppContext, actor: &Actor, class_id: Uuid, input: P
     let deck_ids: Vec<Uuid> = input.steps.iter().filter_map(|s| s.deck_id).collect();
     let deck_refs: HashMap<Uuid, DeckRef> =
         flashcards::refs(ctx, &deck_ids).await?.into_iter().map(|d| (d.id, d)).collect();
+    let assignment_ids: Vec<Uuid> = input.steps.iter().filter_map(|s| s.assignment_id).collect();
+    let assignment_refs: HashMap<Uuid, AssignmentRef> =
+        assignments::refs(ctx, &assignment_ids).await?.into_iter().map(|a| (a.id, a)).collect();
+    // Lộ trình riêng: nhóm phải là nhóm của mình, học sinh phải đang học lớp học này.
+    let mut group_ids: Vec<Uuid> = input.steps.iter().flat_map(|s| s.audience_group_ids.clone()).collect();
+    group_ids.sort();
+    group_ids.dedup();
+    groups::ensure_own_groups(ctx, actor.id, &group_ids)
+        .await
+        .map_err(|_| AppError::field("steps", "Có nhóm học sinh không tồn tại."))?;
+    let students: HashSet<Uuid> =
+        repo::members(&ctx.db, class_id, Some("active")).await?.into_iter().map(|m| m.user_id).collect();
 
     let mut used = HashSet::new();
     let mut steps = Vec::with_capacity(input.steps.len());
     for (i, s) in input.steps.into_iter().enumerate() {
         let n = i + 1;
         let mut deck_id = None;
+        let mut assignment_id = None;
+        if s.audience_user_ids.iter().any(|u| !students.contains(u)) {
+            return Err(AppError::field("steps", format!("Bước {n}: có học sinh không thuộc lớp học này.")));
+        }
         let (lesson_id, exam_id, session_id) = match s.kind {
+            StepKind::Homework => {
+                let id =
+                    s.assignment_id.ok_or_else(|| AppError::field("steps", format!("Bước {n}: chưa chọn bài tập.")))?;
+                match assignment_refs.get(&id) {
+                    Some(a) if a.owner_id == actor.id && !a.archived => {}
+                    _ => {
+                        return Err(AppError::field(
+                            "steps",
+                            format!("Bước {n}: bài tập không tồn tại hoặc đã bị ẩn."),
+                        ));
+                    }
+                }
+                assignment_id = Some(id);
+                (None, None, None)
+            }
             StepKind::Milestone => {
                 if s.title.trim().is_empty() {
                     return Err(AppError::field("steps", format!("Bước {n}: mốc cần có tên.")));
@@ -248,14 +365,24 @@ pub async fn save_path(ctx: &AppContext, actor: &Actor, class_id: Uuid, input: P
             exam_id,
             session_id,
             deck_id,
+            assignment_id,
+            due_at: if s.kind == StepKind::Homework { s.due_at } else { None },
             unlock: if s.kind == StepKind::Milestone { Unlock::Free } else { s.unlock },
             pass_score: if s.kind == StepKind::Exam { s.pass_score } else { None },
+            audience_group_ids: if s.kind == StepKind::Milestone { Vec::new() } else { dedup(s.audience_group_ids) },
+            audience_user_ids: if s.kind == StepKind::Milestone { Vec::new() } else { dedup(s.audience_user_ids) },
         });
     }
     let mut tx = ctx.db.begin().await?;
     repo::replace_steps(&mut tx, class_id, &steps).await?;
     tx.commit().await?;
     get_path(ctx, actor, class_id).await
+}
+
+fn dedup(mut ids: Vec<Uuid>) -> Vec<Uuid> {
+    let mut seen = HashSet::new();
+    ids.retain(|id| seen.insert(*id));
+    ids
 }
 
 /// Xuất bản bản nháp: mọi bài phải đã xuất bản, mọi đề phải có câu hỏi.
@@ -293,6 +420,11 @@ pub async fn publish_path(
                 return Err(AppError::conflict("DECK_EMPTY", format!("Bộ thẻ \"{}\" chưa có thẻ nào.", d.title)));
             }
         }
+        if let Some(a) = s.assignment_id.and_then(|id| refs.assignments.get(&id))
+            && a.archived
+        {
+            return Err(AppError::conflict("ASSIGNMENT_ARCHIVED", format!("Bài tập \"{}\" đã bị ẩn.", a.title)));
+        }
     }
     let mut tx = ctx.db.begin().await?;
     let version = repo::insert_version(&mut *tx, class_id, &steps, actor.id).await?;
@@ -327,10 +459,10 @@ pub async fn publish_path(
 
 // ---------- Học theo lộ trình (học sinh) ----------
 
-struct Learner {
-    class: ClassRow,
+pub(super) struct Learner {
+    pub(super) class: ClassRow,
     /// Giáo viên chủ lớp xem như học sinh.
-    preview: bool,
+    pub(super) preview: bool,
     status: Option<String>,
 }
 
@@ -357,12 +489,12 @@ async fn learner(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult<L
     Ok(Learner { class, preview: false, status })
 }
 
-struct Snapshot {
+pub(super) struct Snapshot {
     version: Option<i32>,
-    steps: Vec<Step>,
+    pub(super) steps: Vec<Step>,
 }
 
-async fn published_steps(ctx: &AppContext, class_id: Uuid) -> AppResult<Snapshot> {
+pub(super) async fn published_steps(ctx: &AppContext, class_id: Uuid) -> AppResult<Snapshot> {
     Ok(match repo::latest_version(&ctx.db, class_id).await? {
         Some(v) => Snapshot { version: Some(v.version), steps: v.steps.0 },
         None => Snapshot { version: None, steps: Vec::new() },
@@ -375,6 +507,13 @@ struct Done {
     scores: HashMap<Uuid, BestScoreRow>,
     completed: HashMap<Uuid, DateTime<Utc>>,
     due_cards: HashMap<Uuid, i64>,
+    /// Bước bài tập → (trạng thái bài nộp, điểm).
+    homework: HashMap<Uuid, (String, Option<f64>)>,
+}
+
+/// Bài nộp tính là xong (đã nộp / đã chấm; bị trả lại thì chưa).
+pub(super) fn homework_done(status: &str) -> bool {
+    matches!(status, "submitted" | "graded")
 }
 
 async fn done_for(ctx: &AppContext, class_id: Uuid, user_id: Uuid, steps: &[Step]) -> AppResult<Done> {
@@ -400,6 +539,15 @@ async fn done_for(ctx: &AppContext, class_id: Uuid, user_id: Uuid, steps: &[Step
         .into_iter()
         .map(|(d, (due, fresh))| (d, due + fresh))
         .collect();
+    let homework: HashMap<Uuid, (String, Option<f64>)> = if steps.iter().any(|s| s.kind == StepKind::Homework) {
+        super::homework::statuses(ctx, class_id, Some(user_id))
+            .await?
+            .into_iter()
+            .map(|h| (h.step_id, (h.status, h.score)))
+            .collect()
+    } else {
+        HashMap::new()
+    };
     let set = steps
         .iter()
         .filter(|s| match s.kind {
@@ -407,11 +555,12 @@ async fn done_for(ctx: &AppContext, class_id: Uuid, user_id: Uuid, steps: &[Step
             StepKind::Exam => s.exam_id.and_then(|e| scores.get(&e)).is_some_and(|b| exam_passed(s, b)),
             StepKind::Session => s.session_id.is_some_and(|x| attended.contains(&x)),
             StepKind::Deck => s.deck_id.is_some_and(|d| decks_done.contains(&d)),
+            StepKind::Homework => homework.get(&s.id).is_some_and(|(st, _)| homework_done(st)),
             StepKind::Milestone => false,
         })
         .map(|s| s.id)
         .collect();
-    Ok(Done { set, scores, completed, due_cards })
+    Ok(Done { set, scores, completed, due_cards, homework })
 }
 
 fn exam_passed(step: &Step, best: &BestScoreRow) -> bool {
@@ -428,6 +577,8 @@ fn learn_steps(steps: &[Step], refs: &Refs, done: &Done, preview: bool) -> Vec<L
             let exam = s.exam_id.and_then(|id| refs.exams.get(&id));
             let session = s.session_id.and_then(|id| refs.sessions.get(&id));
             let deck = s.deck_id.and_then(|id| refs.decks.get(&id));
+            let assignment = s.assignment_id.and_then(|id| refs.assignments.get(&id));
+            let homework = done.homework.get(&s.id);
             let best = s.exam_id.and_then(|id| done.scores.get(&id));
             LearnStep {
                 id: s.id,
@@ -438,6 +589,11 @@ fn learn_steps(steps: &[Step], refs: &Refs, done: &Done, preview: bool) -> Vec<L
                 exam_id: s.exam_id,
                 session_id: s.session_id,
                 deck_id: s.deck_id,
+                assignment_id: s.assignment_id,
+                due_at: s.due_at,
+                homework_status: homework.map(|(st, _)| st.clone()),
+                homework_score: homework.and_then(|(_, sc)| *sc),
+                restricted: !s.for_everyone(),
                 due_cards: s.deck_id.map(|d| done.due_cards.get(&d).copied().unwrap_or(0)),
                 starts_at: session.map(|x| x.starts_at),
                 ends_at: session.map(|x| x.ends_at),
@@ -448,7 +604,7 @@ fn learn_steps(steps: &[Step], refs: &Refs, done: &Done, preview: bool) -> Vec<L
                 item_count: exam.map(|e| e.item_count).or_else(|| deck.map(|d| d.card_count)),
                 pass_score: s.pass_score,
                 best_score: best.and_then(|b| b.best_score),
-                max_score: best.and_then(|b| b.max_score),
+                max_score: best.and_then(|b| b.max_score).or_else(|| assignment.and_then(|a| a.max_score)),
                 submitted_count: best.map_or(0, |b| b.submitted),
                 in_progress_attempt_id: best.and_then(|b| b.in_progress),
                 completed_at: done.completed.get(&s.id).copied(),
@@ -463,12 +619,18 @@ fn summary(steps: &[LearnStep]) -> ProgressSummary {
     ProgressSummary::new(done, total)
 }
 
+/// Bước người học thấy: giáo viên chủ lớp (xem thử) thấy mọi bước, học sinh chỉ thấy bước được giao.
+async fn learner_steps(ctx: &AppContext, l: &Learner, user_id: Uuid, steps: Vec<Step>) -> AppResult<Vec<Step>> {
+    if l.preview { Ok(steps) } else { steps_for(ctx, &l.class, user_id, steps).await }
+}
+
 pub async fn learn(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult<LearnView> {
     let l = learner(ctx, actor, class_id).await?;
     let snap = published_steps(ctx, class_id).await?;
-    let refs = load_refs(ctx, &snap.steps).await?;
-    let done = done_for(ctx, class_id, actor.id, &snap.steps).await?;
-    let steps = learn_steps(&snap.steps, &refs, &done, l.preview);
+    let visible = learner_steps(ctx, &l, actor.id, snap.steps).await?;
+    let refs = load_refs(ctx, &visible).await?;
+    let done = done_for(ctx, class_id, actor.id, &visible).await?;
+    let steps = learn_steps(&visible, &refs, &done, l.preview);
     Ok(LearnView {
         progress: summary(&steps),
         class: ClassCard::new(l.class, l.status, Some(actor.id)),
@@ -480,14 +642,16 @@ pub async fn learn(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult
 
 /// % tiến độ của một học sinh (dùng cho "Lớp học của tôi").
 pub async fn progress_summary(ctx: &AppContext, class_id: Uuid, user_id: Uuid) -> AppResult<ProgressSummary> {
+    let class = repo::find(&ctx.db, class_id).await?.ok_or_else(not_found)?;
     let snap = published_steps(ctx, class_id).await?;
-    let done = done_for(ctx, class_id, user_id, &snap.steps).await?;
-    let total = snap.steps.iter().filter(|s| s.kind != StepKind::Milestone).count() as i64;
+    let steps = steps_for(ctx, &class, user_id, snap.steps).await?;
+    let done = done_for(ctx, class_id, user_id, &steps).await?;
+    let total = steps.iter().filter(|s| s.kind != StepKind::Milestone).count() as i64;
     Ok(ProgressSummary::new(done.set.len() as i64, total))
 }
 
 /// Bước + trạng thái, chặn bước đang khóa.
-async fn open_step(
+pub(super) async fn open_step(
     ctx: &AppContext,
     actor: &Actor,
     class_id: Uuid,
@@ -495,9 +659,10 @@ async fn open_step(
 ) -> AppResult<(Learner, Vec<LearnStep>, usize)> {
     let l = learner(ctx, actor, class_id).await?;
     let snap = published_steps(ctx, class_id).await?;
-    let refs = load_refs(ctx, &snap.steps).await?;
-    let done = done_for(ctx, class_id, actor.id, &snap.steps).await?;
-    let steps = learn_steps(&snap.steps, &refs, &done, l.preview);
+    let visible = learner_steps(ctx, &l, actor.id, snap.steps).await?;
+    let refs = load_refs(ctx, &visible).await?;
+    let done = done_for(ctx, class_id, actor.id, &visible).await?;
+    let steps = learn_steps(&visible, &refs, &done, l.preview);
     let idx = steps
         .iter()
         .position(|s| s.id == step_id)
@@ -608,11 +773,13 @@ pub async fn my_reviews(ctx: &AppContext, actor: &Actor) -> AppResult<Vec<DueDec
         if !snap.steps.iter().any(|s| s.kind == StepKind::Deck) {
             continue;
         }
-        let refs = load_refs(ctx, &snap.steps).await?;
-        let done = done_for(ctx, class_id, actor.id, &snap.steps).await?;
-        let deck_ids: Vec<Uuid> = snap.steps.iter().filter_map(|s| s.deck_id).collect();
+        let Some(class) = repo::find(&ctx.db, class_id).await? else { continue };
+        let steps = steps_for(ctx, &class, actor.id, snap.steps).await?;
+        let refs = load_refs(ctx, &steps).await?;
+        let done = done_for(ctx, class_id, actor.id, &steps).await?;
+        let deck_ids: Vec<Uuid> = steps.iter().filter_map(|s| s.deck_id).collect();
         let counts = flashcards::due_counts(ctx, actor.id, &deck_ids).await?;
-        for s in learn_steps(&snap.steps, &refs, &done, false) {
+        for s in learn_steps(&steps, &refs, &done, false) {
             let (Some(deck_id), true) = (s.deck_id, s.status != StepStatus::Locked) else { continue };
             let (due, fresh) = counts.get(&deck_id).copied().unwrap_or((0, 0));
             out.push(DueDeck {
@@ -649,32 +816,56 @@ pub async fn class_progress(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> 
     let deck_ids: Vec<Uuid> = snap.steps.iter().filter_map(|s| s.deck_id).collect();
     let decks_done: HashSet<(Uuid, Uuid)> =
         flashcards::completed_pairs(ctx, &deck_ids, None).await?.into_iter().collect();
+    let homework: HashMap<(Uuid, Uuid), (String, Option<f64>)> = super::homework::statuses(ctx, class_id, None)
+        .await?
+        .into_iter()
+        .map(|h| ((h.student_id, h.step_id), (h.status, h.score)))
+        .collect();
+    let memberships = if snap.steps.iter().all(Step::for_everyone) {
+        Vec::new()
+    } else {
+        let class = repo::find(&ctx.db, class_id).await?.ok_or_else(not_found)?;
+        groups::memberships(ctx, class.owner_id, None).await?
+    };
 
     let real_steps: Vec<&Step> = snap.steps.iter().filter(|s| s.kind != StepKind::Milestone).collect();
     let out_students = students
         .into_iter()
         .map(|m| {
+            let my_groups: HashSet<Uuid> =
+                memberships.iter().filter(|(_, u)| *u == m.user_id).map(|(g, _)| *g).collect();
             let mut done = 0;
+            let mut total = 0;
             let cells: Vec<ProgressCell> = real_steps
                 .iter()
                 .map(|s| {
+                    let assigned = assigned_to(s, m.user_id, &my_groups);
                     let best = s.exam_id.and_then(|e| scores.iter().find(|b| b.user_id == m.user_id && b.exam_id == e));
+                    let hw = homework.get(&(m.user_id, s.id));
                     let is_done = match s.kind {
                         StepKind::Lesson => progress.iter().any(|p| p.user_id == m.user_id && p.step_id == s.id),
                         StepKind::Session => {
                             s.session_id.is_some_and(|x| attended.iter().any(|(u, sid)| *u == m.user_id && *sid == x))
                         }
                         StepKind::Deck => s.deck_id.is_some_and(|d| decks_done.contains(&(m.user_id, d))),
+                        StepKind::Homework => hw.is_some_and(|(st, _)| homework_done(st)),
                         _ => best.is_some_and(|b| exam_passed(s, b)),
                     };
-                    if is_done {
-                        done += 1;
+                    if assigned {
+                        total += 1;
+                        if is_done {
+                            done += 1;
+                        }
                     }
+                    let assignment_max =
+                        s.assignment_id.and_then(|id| refs.assignments.get(&id)).and_then(|a| a.max_score);
                     ProgressCell {
                         step_id: s.id,
                         done: is_done,
-                        score: best.and_then(|b| b.best_score),
-                        max_score: best.and_then(|b| b.max_score),
+                        assigned,
+                        homework_status: hw.map(|(st, _)| st.clone()),
+                        score: best.and_then(|b| b.best_score).or_else(|| hw.and_then(|(_, sc)| *sc)),
+                        max_score: best.and_then(|b| b.max_score).or(assignment_max),
                     }
                 })
                 .collect();
@@ -682,7 +873,7 @@ pub async fn class_progress(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> 
                 user_id: m.user_id,
                 username: m.username,
                 full_name: m.full_name,
-                progress: ProgressSummary::new(done, real_steps.len() as i64),
+                progress: ProgressSummary::new(done, total),
                 cells,
             }
         })
@@ -709,9 +900,47 @@ mod tests {
             exam_id: None,
             session_id: None,
             deck_id: None,
+            assignment_id: None,
+            due_at: None,
             unlock,
             pass_score: None,
+            audience_group_ids: Vec::new(),
+            audience_user_ids: Vec::new(),
         }
+    }
+
+    #[test]
+    fn lo_trinh_rieng_theo_nhom_va_hoc_sinh() {
+        let (an, binh) = (Uuid::now_v7(), Uuid::now_v7());
+        let nhom = Uuid::now_v7();
+        let mut steps = vec![
+            step(StepKind::Milestone, Unlock::Free), // 0: chương 1
+            step(StepKind::Lesson, Unlock::Free),    // 1: cả lớp
+            step(StepKind::Milestone, Unlock::Free), // 2: chương nâng cao — chỉ có bước của nhóm
+            step(StepKind::Exam, Unlock::Free),      // 3: nhóm
+            step(StepKind::Homework, Unlock::Free),  // 4: riêng Bình
+            step(StepKind::Milestone, Unlock::Free), // 5: mốc cuối, không có bước nào → luôn giữ
+        ];
+        steps[3].audience_group_ids = vec![nhom];
+        steps[4].audience_user_ids = vec![binh];
+        let ids = |v: Vec<Step>| v.iter().map(|s| s.id).collect::<Vec<_>>();
+
+        // An không thuộc nhóm: không thấy chương nâng cao.
+        let an_steps = visible_steps(&steps, an, &HashSet::new());
+        assert_eq!(ids(an_steps), vec![steps[0].id, steps[1].id, steps[5].id]);
+        // An vào nhóm: thấy đề của nhóm, vẫn không thấy bài tập riêng của Bình.
+        let in_group: HashSet<Uuid> = [nhom].into();
+        assert_eq!(
+            ids(visible_steps(&steps, an, &in_group)),
+            vec![steps[0].id, steps[1].id, steps[2].id, steps[3].id, steps[5].id]
+        );
+        // Bình (không thuộc nhóm) thấy bài tập riêng của mình.
+        assert_eq!(
+            ids(visible_steps(&steps, binh, &HashSet::new())),
+            vec![steps[0].id, steps[1].id, steps[2].id, steps[4].id, steps[5].id]
+        );
+        assert!(assigned_to(&steps[1], an, &HashSet::new()));
+        assert!(!assigned_to(&steps[4], an, &in_group));
     }
 
     #[test]

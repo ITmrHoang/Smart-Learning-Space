@@ -13,13 +13,14 @@ describe('menu theo quyền', () => {
     expect(labels(menu)).toContain('Lớp học của tôi');
     expect(labels(menu)).toContain('Lịch học');
     expect(labels(menu)).toContain('Ôn tập hôm nay');
+    expect(labels(menu)).toContain('Học kèm 1-1');
     expect(labels(menu)).not.toContain('Lịch dạy');
   });
 
   it('giáo viên thấy nhóm Dạy học', () => {
     const menu = visibleMenu([P.MASTER_DATA_PROPOSE, P.TEACHING_MANAGE]);
     expect(menu.map((g) => g.title)).toEqual([null, 'Học tập', 'Dạy học']);
-    expect(labels(menu)).toEqual(expect.arrayContaining(['Lịch dạy', 'Lớp học', 'Bài học', 'Ngân hàng câu hỏi', 'Đề ôn tập / kiểm tra', 'Thẻ ghi nhớ', 'Nhóm học sinh']));
+    expect(labels(menu)).toEqual(expect.arrayContaining(['Lịch dạy', 'Lớp học', 'Bài học', 'Ngân hàng câu hỏi', 'Đề ôn tập / kiểm tra', 'Thẻ ghi nhớ', 'Nhóm học sinh', 'Bài tập về nhà']));
   });
 
   it('giáo viên không thấy mục đăng ký giáo viên', () => {

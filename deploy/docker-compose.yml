@@ -96,6 +96,9 @@ services:
       SSO_MICROSOFT_CLIENT_ID: ${SSO_MICROSOFT_CLIENT_ID:-}
       SSO_MICROSOFT_CLIENT_SECRET: ${SSO_MICROSOFT_CLIENT_SECRET:-}
       SSO_MICROSOFT_TENANT: ${SSO_MICROSOFT_TENANT:-common}
+      S3_ENDPOINT: http://${GARAGE_HOST:-garage}:${GARAGE_PORT:-3900}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
       LOG_FORMAT: json
     ports:
@@ -127,6 +130,7 @@ services:
       # Có tên miền → Caddy tự cấp HTTPS (Let's Encrypt). Chưa có tên miền → để `:80` (HTTP, dùng trong LAN).
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
       API_UPSTREAM: ${API_HOST:-api}:${API_PORT:-8080}
+      GARAGE_UPSTREAM: ${GARAGE_HOST:-garage}:${GARAGE_PORT:-3900}
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
@@ -138,7 +142,21 @@ services:
       - caddydata:/data
       - caddyconfig:/config
 
-  # Service sau này (import-worker, media-worker, ai-service, garage, livekit…) thêm theo cùng mẫu:
+  garage:
+    profiles: [garage]
+    image: dxflrs/garage:v2.5.0
+    restart: unless-stopped
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-}
+    ports:
+      # S3 API: Caddy (cùng máy hoặc máy khác) chuyển /files/* vào đây; api gọi để kiểm tra file.
+      - "${PUBLISH_IP:-127.0.0.1}:${GARAGE_PUBLISH_PORT:-3900}:3900"
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garagedata:/var/lib/garage
+
+  # Service sau này (import-worker, media-worker, ai-service, livekit…) thêm theo cùng mẫu:
   # profile trùng tên, địa chỉ service khác đọc từ biến *_HOST trong .env.
 
 volumes:
@@ -147,3 +165,4 @@ volumes:
   rabbitdata:
   caddydata:
   caddyconfig:
+  garagedata:

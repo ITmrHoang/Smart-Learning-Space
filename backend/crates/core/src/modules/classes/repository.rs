@@ -280,7 +280,8 @@ pub async fn members<'e, E: PgExecutor<'e>>(
 
 pub async fn draft_steps<'e, E: PgExecutor<'e>>(db: E, class_id: Uuid) -> sqlx::Result<Vec<Step>> {
     Ok(sqlx::query_as::<_, StepRow>(
-        "SELECT id, kind, title, lesson_id, exam_id, session_id, deck_id, unlock, pass_score FROM path_steps WHERE class_id = $1 ORDER BY position",
+        "SELECT id, kind, title, lesson_id, exam_id, session_id, deck_id, assignment_id, due_at, unlock, pass_score, \
+         audience_group_ids, audience_user_ids FROM path_steps WHERE class_id = $1 ORDER BY position",
     )
     .bind(class_id)
     .fetch_all(db)
@@ -296,7 +297,8 @@ pub async fn replace_steps(conn: &mut sqlx::PgConnection, class_id: Uuid, steps:
     for (i, s) in steps.iter().enumerate() {
         sqlx::query(
             "INSERT INTO path_steps (id, class_id, position, kind, title, lesson_id, exam_id, session_id, deck_id, unlock, \
-             pass_score) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+             pass_score, assignment_id, due_at, audience_group_ids, audience_user_ids) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .bind(s.id)
         .bind(class_id)
@@ -309,6 +311,10 @@ pub async fn replace_steps(conn: &mut sqlx::PgConnection, class_id: Uuid, steps:
         .bind(s.deck_id)
         .bind(s.unlock.as_str())
         .bind(s.pass_score)
+        .bind(s.assignment_id)
+        .bind(s.due_at)
+        .bind(&s.audience_group_ids)
+        .bind(&s.audience_user_ids)
         .execute(&mut *conn)
         .await?;
     }

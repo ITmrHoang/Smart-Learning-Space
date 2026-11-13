@@ -38,7 +38,19 @@ export const SCORING_LABELS = {
   per_question: 'Đúng hết mới có điểm',
   thpt_true_false: 'Đúng / sai theo thang THPT (0,1 / 0,25 / 0,5 / 1)',
 };
-export const STEP_KIND_LABELS = { milestone: 'Mốc', lesson: 'Bài học', exam: 'Đề', session: 'Buổi học', deck: 'Thẻ ghi nhớ' };
+export const STEP_KIND_LABELS = {
+  milestone: 'Mốc',
+  lesson: 'Bài học',
+  exam: 'Đề',
+  session: 'Buổi học',
+  deck: 'Thẻ ghi nhớ',
+  homework: 'Bài tập',
+};
+/** Bài nộp: chưa nộp (null) · đã nộp · trả lại làm lại · đã chấm. */
+export const HOMEWORK_STATUS_LABELS = { submitted: 'Đã nộp, chờ chấm', returned: 'Cần làm lại', graded: 'Đã chấm' };
+export const HOMEWORK_STATUS_COLORS = { submitted: 'info', returned: 'warning', graded: 'success' };
+export const BOOKING_STATUS_LABELS = { pending: 'Chờ giáo viên', approved: 'Đã nhận', declined: 'Bị từ chối', cancelled: 'Đã hủy' };
+export const BOOKING_STATUS_COLORS = { pending: 'warning', approved: 'success', declined: 'danger', cancelled: 'secondary' };
 export const STEP_STATUS_LABELS = { done: 'Đã xong', available: 'Đang mở', locked: 'Chưa mở' };
 export const STEP_STATUS_COLORS = { done: 'success', available: 'info', locked: 'secondary' };
 

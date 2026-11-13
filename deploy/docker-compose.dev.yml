@@ -59,7 +59,21 @@ services:
       timeout: 3s
       retries: 10
 
+  # Lưu file (tương thích S3). Sau lần `up` đầu tiên chạy: sh deploy/garage/init.sh
+  garage:
+    image: dxflrs/garage:v2.5.0
+    environment:
+      # File cấu hình mount từ Windows luôn "ai cũng đọc được" → cho phép khi dev.
+      GARAGE_ALLOW_WORLD_READABLE_SECRETS: "true"
+    ports:
+      - "127.0.0.1:3900:3900" # S3 API (Vite chuyển /files/* vào đây)
+      - "127.0.0.1:3903:3903" # admin API
+    volumes:
+      - ./garage/garage.dev.toml:/etc/garage.toml:ro
+      - garagedata:/var/lib/garage
+
 volumes:
   pgdata:
   valkeydata:
   rabbitdata:
+  garagedata:

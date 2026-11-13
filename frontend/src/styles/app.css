@@ -195,3 +195,25 @@ dl.info dd {
     grid-template-columns: 1fr;
   }
 }
+
+/* Bảng dữ liệu đơn giản (bài nộp, bài tập của lớp học…) */
+.table-wrap {
+  overflow-x: auto;
+}
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+table.data th,
+table.data td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hui-border-secondary, #eceef1);
+  text-align: left;
+  vertical-align: middle;
+}
+table.data th {
+  font-weight: 600;
+  color: var(--hui-text-secondary, #6b7280);
+  white-space: nowrap;
+}

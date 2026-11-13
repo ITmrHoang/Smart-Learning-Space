@@ -35,11 +35,11 @@ async fn main() -> anyhow::Result<()> {
     let ctx = AppContext::new(config, pool, jobs, RateLimiter::Valkey(valkey.clone()), Some(valkey));
     users::bootstrap_admin(&ctx).await.map_err(|e| anyhow::anyhow!("tạo admin đầu tiên thất bại: {e}"))?;
 
-    // Mỗi 60 giây: nhắc lịch học + báo cáo tuần cho phụ huynh (tối Chủ nhật). Cả hai "nhận" việc bằng câu lệnh
+    // Mỗi 60 giây: nhắc lịch học + nhắc hạn nộp bài tập + báo cáo tuần cho phụ huynh (tối Chủ nhật). Cả hai "nhận" việc bằng câu lệnh
     // UPDATE / INSERT … RETURNING nên chạy nhiều instance cũng không gửi trùng.
     let reminder_ctx = ctx.clone();
     tokio::spawn(async move {
-        use sls_core::modules::{guardians, sessions};
+        use sls_core::modules::{classes::homework, guardians, sessions};
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
         // Tuần đã gửi xong báo cáo (trong instance này) → khỏi quét lại tới tuần sau.
         let mut weekly_done = None;
@@ -49,6 +49,11 @@ async fn main() -> anyhow::Result<()> {
                 Ok(0) => {}
                 Ok(n) => tracing::info!(sessions = n, "đã gửi nhắc lịch học"),
                 Err(e) => tracing::error!(error = %e, "gửi nhắc lịch học thất bại"),
+            }
+            match homework::reminder_tick(&reminder_ctx).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(students = n, "đã nhắc hạn nộp bài tập"),
+                Err(e) => tracing::error!(error = %e, "nhắc hạn nộp bài tập thất bại"),
             }
             match guardians::weekly_tick(&reminder_ctx, &mut weekly_done).await {
                 Ok(0) => {}

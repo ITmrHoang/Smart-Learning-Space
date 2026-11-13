@@ -70,6 +70,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **Valkey** | 9.1.3 | Bộ nhớ đệm key-value (bản mã nguồn mở của Redis): đếm số lần đăng nhập sai, gửi OTP… để giới hạn tần suất |
 | **RabbitMQ** | 4.4.0 | Hàng đợi việc: API trả lời ngay, việc chậm (gửi email, sau này chuyển mã video, đọc file đề) để worker làm sau. Trang quản trị: http://127.0.0.1:15672 |
 | **Mailpit** | 1.33.0 | Hộp thư giả khi dev: bắt mọi email worker gửi để xem OTP / link tại http://127.0.0.1:8025, không gửi ra ngoài |
+| **Garage** | 2.5.0 | Lưu file tương thích S3, tự host: ảnh trong bài học / câu hỏi / hỏi đáp, ảnh / PDF bài làm của học sinh, ảnh đại diện giáo viên. Trình duyệt upload / tải thẳng bằng presigned URL (API chỉ ký link và kiểm tra file), đi qua đường dẫn `/files/*` cùng domain |
 
 ### Bảo mật đăng nhập
 
@@ -86,7 +87,6 @@ Backend là một *modular monolith* gồm 3 crate:
 | Công nghệ | Tác dụng |
 |---|---|
 | **Caddy** 2.11.4 | Reverse proxy production: tự cấp HTTPS, phục vụ file tĩnh của frontend, chuyển `/api` cho backend — đã cấu hình ở `deploy/Caddyfile` |
-| **Garage** | Lưu file (video, ảnh, tài liệu) tương thích S3, tự host; trình duyệt upload thẳng bằng presigned URL |
 | **LiveKit** | Dạy trực tiếp: video, âm thanh, chia sẻ màn hình (WebRTC) |
 
 ## Chạy môi trường dev
@@ -99,6 +99,10 @@ docker compose -f deploy/docker-compose.dev.yml up -d
 
 ```bash
 cp backend/.env.example backend/.env
+```
+
+```bash
+sh deploy/garage/init.sh   # một lần: tạo bucket + khóa cho Garage (Windows: chạy bằng Git Bash)
 ```
 
 ```bash
@@ -119,6 +123,7 @@ cd frontend && npm install && npm run dev
 | http://127.0.0.1:8080/api/health | Kiểm tra API |
 | http://127.0.0.1:8025 | Mailpit — xem email (OTP, đặt lại mật khẩu) |
 | http://127.0.0.1:15672 | Trang quản trị RabbitMQ |
+| http://127.0.0.1:5173/p/lop-hoc/{id} · `/p/giao-vien/{username}` · `/sitemap.xml` | Trang công khai cho máy tìm kiếm (HTML do API dựng sẵn) |
 
 Lần chạy đầu, API tạo tài khoản admin từ `BOOTSTRAP_ADMIN_*` trong `backend/.env` (giá trị mẫu chỉ dùng cho dev).
 
@@ -161,6 +166,7 @@ Ví dụ hai máy cùng mạng LAN / VPN, máy A có IP `10.0.0.1`:
 
 - Service lưu dữ liệu (Postgres, Valkey, RabbitMQ) chỉ chạy **trên một máy**; worker chạy bao nhiêu máy cũng được, cùng lấy việc từ một hàng đợi.
 - Qua Internet: nối các máy bằng WireGuard / Tailscale rồi dùng IP VPN như IP LAN. **Không** mở Postgres / Valkey / RabbitMQ ra IP public.
+- Lưu file: thêm `garage` vào `COMPOSE_PROFILES`, điền `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` trong `deploy/.env`, sau lần `up` đầu tiên chạy `sh deploy/garage/init.sh prod`. Caddy chuyển `/files/*` vào Garage. **Bắt buộc sao lưu** volume `garagedata` (một node chỉ có một bản dữ liệu).
 - Image backend build từ [`backend/Dockerfile`](backend/Dockerfile) (một lần build ra `sls-api` và `sls-worker`, image distroless chạy user không phải root). Migration tự chạy khi api khởi động.
 
 ## Test

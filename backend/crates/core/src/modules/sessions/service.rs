@@ -546,3 +546,76 @@ pub async fn attendance_stats(
     }
     Ok(repo::attendance_stats(&ctx.db, class_id, user_ids, from, to).await?)
 }
+
+// ---------- Học kèm 1-1 (M23) ----------
+
+/// Buổi học kèm 1-1 cần tạo (xem `create_booked`).
+pub struct BookedSession<'a> {
+    pub teacher_id: Uuid,
+    pub student_id: Uuid,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub starts_at: DateTime<Utc>,
+    pub duration_minutes: i64,
+    pub meeting_url: Option<String>,
+}
+
+/// Tạo buổi học kèm cho học sinh đã đặt lịch (giáo viên vừa đồng ý). Khác `create`: học sinh không cần đang học
+/// lớp học của giáo viên (khung giờ có thể mở cho mọi tài khoản). Vẫn chặn trùng lịch giáo viên, gửi lời mời
+/// kèm `.ics` như buổi thường.
+pub async fn create_booked(ctx: &AppContext, b: BookedSession<'_>) -> AppResult<Uuid> {
+    let BookedSession { teacher_id, student_id, title, description, starts_at, duration_minutes, meeting_url } = b;
+    let fields = SessionFields {
+        title: title.chars().take(200).collect(),
+        description: description.chars().take(5000).collect(),
+        class_id: None,
+        starts_at,
+        duration_minutes,
+        invitees: InviteesInput { user_ids: vec![student_id], ..Default::default() },
+        access: Access::Invited,
+        meeting_url,
+        remind_minutes: 60,
+        lesson_ids: Vec::new(),
+    };
+    fields.validate()?;
+    let ends = starts_at + TimeDelta::minutes(duration_minutes);
+    if let Some((title, at)) = repo::owner_conflict(&ctx.db, teacher_id, &[starts_at], &[ends], &[]).await? {
+        return Err(conflict_error(&title, at));
+    }
+    let targets = targets(&fields.invitees);
+    let mut tx = ctx.db.begin().await?;
+    let id = repo::insert(&mut tx, &new_session(teacher_id, None, &fields, starts_at)).await?;
+    repo::set_invitees(&mut tx, id, &targets).await?;
+    tx.commit().await?;
+    let rows = repo::find_many(&ctx.db, &[id]).await?;
+    let recipients = repo::recipients(&ctx.db, &[id]).await?;
+    announce(ctx, &rows, &recipients, Mail::Invite).await?;
+    Ok(id)
+}
+
+/// Hủy một buổi (học sinh hủy lịch học kèm đã được duyệt). Buổi đã hủy thì bỏ qua.
+pub async fn cancel_by_id(ctx: &AppContext, id: Uuid) -> AppResult<()> {
+    let rows = repo::find_many(&ctx.db, &[id]).await?;
+    if rows.iter().all(|s| s.status == "cancelled") {
+        return Ok(());
+    }
+    let recipients = repo::recipients(&ctx.db, &[id]).await?;
+    repo::cancel(&ctx.db, &[id]).await?;
+    let rows = repo::find_many(&ctx.db, &[id]).await?;
+    announce(ctx, &rows, &recipients, Mail::Cancelled).await
+}
+
+/// Khoảng giờ giáo viên đã có buổi (chưa hủy) — để tính khung giờ còn trống cho học kèm.
+pub async fn busy(
+    ctx: &AppContext,
+    owner: Uuid,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> AppResult<Vec<(DateTime<Utc>, DateTime<Utc>)>> {
+    Ok(repo::list_owned(&ctx.db, owner, from, to, None)
+        .await?
+        .into_iter()
+        .filter(|s| s.status != "cancelled")
+        .map(|s| (s.starts_at, s.ends_at))
+        .collect())
+}

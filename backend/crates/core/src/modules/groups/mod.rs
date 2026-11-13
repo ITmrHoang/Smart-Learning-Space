@@ -225,3 +225,16 @@ pub async fn ensure_own_groups(ctx: &AppContext, owner: Uuid, ids: &[Uuid]) -> A
     }
     Ok(())
 }
+
+/// Cặp (nhóm, học sinh) trong các nhóm của `owner`; `user_id` = chỉ nhóm có học sinh này
+/// (lộ trình riêng: bước dành cho nhóm nào thì học sinh trong nhóm đó thấy).
+pub async fn memberships(ctx: &AppContext, owner: Uuid, user_id: Option<Uuid>) -> AppResult<Vec<(Uuid, Uuid)>> {
+    Ok(sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT m.group_id, m.user_id FROM student_group_members m JOIN student_groups g ON g.id = m.group_id \
+         WHERE g.owner_id = $1 AND ($2::uuid IS NULL OR m.user_id = $2)",
+    )
+    .bind(owner)
+    .bind(user_id)
+    .fetch_all(&ctx.db)
+    .await?)
+}

@@ -30,6 +30,22 @@ pub enum NotificationKind {
     QuestionReply,
     /// Có nội dung bị báo vi phạm (gửi giáo viên).
     ContentReported,
+    /// Bài tập: học sinh nộp bài (gửi giáo viên).
+    HomeworkSubmitted,
+    /// Bài tập: đã chấm / có nhận xét (gửi học sinh).
+    HomeworkGraded,
+    /// Bài tập: giáo viên trả lại để làm lại.
+    HomeworkReturned,
+    /// Bài tập: sắp hết hạn nộp.
+    HomeworkDue,
+    /// Học kèm 1-1: có yêu cầu đặt lịch mới (gửi giáo viên).
+    BookingRequested,
+    /// Học kèm 1-1: giáo viên đồng ý.
+    BookingApproved,
+    /// Học kèm 1-1: giáo viên từ chối.
+    BookingDeclined,
+    /// Học kèm 1-1: một bên hủy lịch.
+    BookingCancelled,
 }
 
 impl NotificationKind {
@@ -45,6 +61,14 @@ impl NotificationKind {
             Self::QuestionNew => "question_new",
             Self::QuestionReply => "question_reply",
             Self::ContentReported => "content_reported",
+            Self::HomeworkSubmitted => "homework_submitted",
+            Self::HomeworkGraded => "homework_graded",
+            Self::HomeworkReturned => "homework_returned",
+            Self::HomeworkDue => "homework_due",
+            Self::BookingRequested => "booking_requested",
+            Self::BookingApproved => "booking_approved",
+            Self::BookingDeclined => "booking_declined",
+            Self::BookingCancelled => "booking_cancelled",
         }
     }
 }

@@ -11,7 +11,7 @@
           </div>
         </div>
         <p class="muted small">
-          {{ subjectName }} · Giáo viên {{ detail.teacherName }} · {{ MODE_LABELS[detail.mode] }} · {{ detail.studentCount }} học sinh
+          {{ subjectName }} · Giáo viên <RouterLink :to="{ name: 'teacher-profile', params: { key: detail.teacherId } }">{{ detail.teacherName }}</RouterLink> · {{ MODE_LABELS[detail.mode] }} · {{ detail.studentCount }} học sinh
         </p>
         <hui-markdown v-if="detail.description" :value="detail.description" />
 
@@ -62,18 +62,24 @@
           <li v-for="s in learn.steps" :key="s.id" :class="[`kind-${s.kind}`, `st-${s.status}`]">
             <h3 v-if="s.kind === 'milestone'">{{ s.title }}</h3>
             <template v-else>
-              <span class="icon" :title="STEP_STATUS_LABELS[s.status]">{{ s.status === 'done' ? '✓' : s.status === 'locked' ? '🔒' : s.kind === 'exam' ? '✎' : s.kind === 'session' ? '◷' : s.kind === 'deck' ? '❏' : '▶' }}</span>
+              <span class="icon" :title="STEP_STATUS_LABELS[s.status]">{{ s.status === 'done' ? '✓' : s.status === 'locked' ? '🔒' : s.kind === 'exam' ? '✎' : s.kind === 'session' ? '◷' : s.kind === 'deck' ? '❏' : s.kind === 'homework' ? '✍' : '▶' }}</span>
               <div class="body">
                 <div class="row">
                   <b>{{ s.title }}</b>
                   <hui-tag v-if="s.kind === 'exam'" size="sm" :color="EXAM_KIND_COLORS[s.examKind]">{{ EXAM_KIND_LABELS[s.examKind] }}</hui-tag>
                   <hui-tag v-if="s.kind === 'session'" size="sm" :color="PHASE_COLORS[phaseOf(s)]">{{ PHASE_LABELS[phaseOf(s)] }}</hui-tag>
                   <hui-tag v-if="s.kind === 'deck' && s.dueCards" size="sm" color="warning">{{ s.dueCards }} thẻ cần ôn</hui-tag>
+                  <hui-tag v-if="s.kind === 'homework' && s.homeworkStatus" size="sm" :color="HOMEWORK_STATUS_COLORS[s.homeworkStatus]">{{ HOMEWORK_STATUS_LABELS[s.homeworkStatus] }}</hui-tag>
+                  <hui-tag v-if="s.restricted" size="sm" color="secondary" title="Bước chỉ dành cho một số nhóm / học sinh">Riêng</hui-tag>
                 </div>
                 <span class="muted small">
                   <template v-if="s.kind === 'lesson'">Bài học{{ s.durationMinutes ? ` · ${s.durationMinutes} phút` : '' }}</template>
                   <template v-else-if="s.kind === 'session'">Buổi học · {{ formatSessionTime(s.startsAt, s.endsAt) }}<template v-if="s.status === 'done'"> · đã điểm danh</template></template>
                   <template v-else-if="s.kind === 'deck'">Thẻ ghi nhớ · {{ s.itemCount }} thẻ<template v-if="s.status === 'done'"> · đã ôn hết một lượt</template></template>
+                  <template v-else-if="s.kind === 'homework'">
+                    Bài tập về nhà<template v-if="s.dueAt"> · hạn nộp <span :class="{ 'field-error': !s.homeworkStatus && new Date(s.dueAt) < new Date() }">{{ formatDateTime(s.dueAt) }}</span></template>
+                    <template v-if="s.homeworkScore != null"> · {{ formatScore(s.homeworkScore) }}/{{ formatScore(s.maxScore) }} điểm</template>
+                  </template>
                   <template v-else>
                     {{ s.itemCount }} câu{{ s.timeLimitMinutes ? ` · ${s.timeLimitMinutes} phút` : '' }}
                     <template v-if="s.passScore != null"> · cần đạt {{ formatScore(s.passScore) }} điểm</template>
@@ -92,6 +98,9 @@
                 <template v-if="s.status !== 'locked'">
                   <RouterLink v-if="s.kind === 'lesson'" :to="{ name: 'lesson-view', params: { id: detail.id, stepId: s.id } }">
                     {{ s.status === 'done' ? 'Xem lại' : 'Học' }}
+                  </RouterLink>
+                  <RouterLink v-else-if="s.kind === 'homework'" :to="{ name: 'homework', params: { id: detail.id, stepId: s.id } }">
+                    {{ !s.homeworkStatus ? 'Làm bài' : s.homeworkStatus === 'returned' ? 'Làm lại' : 'Xem bài' }}
                   </RouterLink>
                   <RouterLink v-else-if="s.kind === 'deck'" :to="{ name: 'deck-study', params: { id: detail.id, stepId: s.id } }">
                     {{ s.dueCards ? 'Ôn thẻ' : 'Luyện thêm' }}
@@ -152,6 +161,8 @@ import {
   MEMBER_STATUS_LABELS,
   MODE_LABELS,
   STEP_KIND_LABELS,
+  HOMEWORK_STATUS_COLORS,
+  HOMEWORK_STATUS_LABELS,
   STEP_STATUS_LABELS,
   formatScore,
 } from '../../utils/teaching';

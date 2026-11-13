@@ -49,6 +49,14 @@ export const NOTIFICATION_KIND_LABELS = {
   question_new: 'Câu hỏi mới',
   question_reply: 'Trả lời mới',
   content_reported: 'Báo vi phạm',
+  homework_submitted: 'Bài nộp mới',
+  homework_graded: 'Bài đã chấm',
+  homework_returned: 'Bài cần làm lại',
+  homework_due: 'Sắp hết hạn nộp',
+  booking_requested: 'Yêu cầu học kèm',
+  booking_approved: 'Lịch học kèm được nhận',
+  booking_declined: 'Lịch học kèm bị từ chối',
+  booking_cancelled: 'Lịch học kèm bị hủy',
 };
 export const NOTIFICATION_KIND_ICONS = {
   session_invite: 'calendar',
@@ -61,6 +69,14 @@ export const NOTIFICATION_KIND_ICONS = {
   question_new: 'chat',
   question_reply: 'chat',
   content_reported: 'warning',
+  homework_submitted: 'edit',
+  homework_graded: 'success',
+  homework_returned: 'warning',
+  homework_due: 'clock',
+  booking_requested: 'calendar',
+  booking_approved: 'success',
+  booking_declined: 'error',
+  booking_cancelled: 'error',
 };
 
 /** 90 → "1 giờ 30 phút"; 45 → "45 phút"; 120 → "2 giờ". */
@@ -179,4 +195,24 @@ export function mergeSessions(...lists) {
   const map = new Map();
   for (const list of lists) for (const s of list ?? []) if (!map.has(s.id)) map.set(s.id, s);
   return [...map.values()].sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
+}
+
+/** Khoảng học kèm còn trống → nhóm theo ngày (giờ của máy): [{ date, label, slots }]. */
+export function groupSlotsByDay(slots) {
+  const days = new Map();
+  for (const s of slots) {
+    const { date, time } = localParts(s.startsAt);
+    if (!days.has(date)) days.set(date, { date, label: formatDay(s.startsAt), slots: [] });
+    days.get(date).slots.push({ ...s, time });
+  }
+  return [...days.values()];
+}
+
+/** Khung giờ hằng tuần của lịch học kèm → "T2 19:00–21:00, T4 14:00–16:00". */
+export function formatWindows(windows) {
+  const label = (d) => WEEKDAYS.find((w) => w.value === d)?.label ?? '';
+  return [...(windows ?? [])]
+    .sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start))
+    .map((w) => `${label(w.weekday)} ${w.start}–${w.end}`)
+    .join(', ');
 }

@@ -201,6 +201,58 @@ Migration `20261113000001_reports_qa_flashcards_guardians.sql` (`class_threads`,
 
 **Dữ liệu thử thêm trong DB dev:** bộ thẻ "Căn bậc hai — ghi nhớ nhanh" (6 thẻ, là bước cuối của lộ trình "Toán 9"), 2 câu hỏi trong hỏi đáp (1 đã giải đáp), phụ huynh `bo.thu@example.com` và `me.thu@example.com` của `hs.thu` (đã xác nhận).
 
+## Đợt 5 — Lưu file, bài tập về nhà, học kèm 1-1, lộ trình riêng, trang công khai (bắt đầu 2026-11-13)
+
+> Yêu cầu: "còn tính năng nào làm nốt cho tôi". Làm nốt các phần của G2–G4 và đề xuất đã chốt còn treo vì chưa có chỗ lưu file. Live (LiveKit) + bảng thông minh (G5 / G6), thanh toán (G7), AI (G8) để các đợt riêng.
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M21** | Lưu file trên **Garage 2.5** (tương thích S3, tự host): trình duyệt upload / tải thẳng bằng presigned URL qua `/files/*` cùng domain; API ký link (AWS SigV4 viết tay, không thêm crate), kiểm tra file sau khi upload (có thật, kích thước, chữ ký định dạng). Chèn ảnh vào mọi ô soạn Markdown (bấm nút, dán, kéo thả) | ✅ Xong (2026-11-13) |
+| **M22** | Bài tập về nhà (D2 + D9): thư viện bài tập của giáo viên; bước "Bài tập" trong lộ trình có hạn nộp; học sinh nộp ảnh / PDF (chụp bằng điện thoại, ảnh lớn tự thu nhỏ); giáo viên chấm điểm, nhận xét, **vẽ nhận xét lên ảnh**, trả lại để làm lại; nhắc hạn nộp trước 24 giờ (trong app + email) | ✅ Xong (2026-11-13) |
+| **M23** | Đặt lịch học kèm 1-1 (D15): giáo viên mở khung giờ rảnh hằng tuần; học sinh chọn giờ còn trống, gửi yêu cầu; giáo viên nhận → tự tạo buổi học + lời mời `.ics`; từ chối / hủy có lý do | ✅ Xong (2026-11-13) |
+| **M24** | Lộ trình riêng cho nhóm / học sinh: mỗi bước chọn "Dành cho" (cả lớp, nhóm, từng học sinh); học sinh chỉ thấy và chỉ tính tiến độ các bước được giao | ✅ Xong (2026-11-13) |
+| **M25** | Hồ sơ giáo viên công khai (D1) + trang công khai cho máy tìm kiếm (D14): trang HTML dựng sẵn `/p/giao-vien/{username}`, `/p/lop-hoc/{id}` (tiêu đề, mô tả, Open Graph, schema.org), `sitemap.xml`, `robots.txt`; trang giáo viên trong ứng dụng có lớp học công khai + đặt lịch học kèm | ✅ Xong (2026-11-13) |
+
+**Để sau:** live + bảng thông minh (G5 / G6), ghi hình buổi live (D4), upload video bài giảng + chuyển HLS (cần `media-worker` + FFmpeg; Garage đã sẵn), import Word / PDF (cần `import-worker`), câu hỏi chèn giữa video (D5), watermark video (D6), trợ giảng (D12), PWA (D10), email báo cáo dạng HTML, thông báo realtime qua WebSocket, thanh toán (G7), AI (G8). Dọn file `pending` không ai báo xong (sau 1 ngày) chưa làm.
+
+### Kết quả đợt 5 (2026-11-13)
+
+Migration `20261113000002_files_homework_tutoring_profiles.sql` (`files`, `assignments`, `homework_submissions`, `submission_files`, `homework_due_reminders`, `tutoring_offers`, `tutoring_bookings`, `teacher_profiles`; `path_steps` thêm loại `homework` + cột `assignment_id`, `due_at`, `audience_group_ids`, `audience_user_ids`). Mã: `core/src/storage.rs` (Garage / S3, kho bộ nhớ cho test), module `files`, `assignments`, `classes/homework.rs`, `tutoring`, `profiles`; `sessions::create_booked` / `cancel_by_id` / `busy` cho học kèm; controller `api/src/controllers/{files, coursework}.rs`. Hạ tầng: Garage trong `deploy/docker-compose.dev.yml` + `deploy/docker-compose.yml` (profile `garage`), `deploy/garage/{garage.dev.toml, garage.toml, init.sh}`, Caddy chuyển `/files/*` vào Garage và `/p/*`, `/sitemap.xml`, `/robots.txt` vào api.
+
+| API | Mô tả |
+|---|---|
+| `POST /api/files` (`{purpose: content\|homework, name, contentType, size}` → link upload) · `POST /api/files/{id}/complete` · `GET /api/files/{id}` (chuyển hướng sang presigned URL; file bài làm cần `?exp=&sig=`) | Lưu file |
+| `teaching/assignments` (GET, POST) · `teaching/assignments/{id}` (GET, PUT, DELETE = ẩn) | Thư viện bài tập |
+| `classes/{id}/steps/{stepId}/homework` (GET, PUT `{note, fileIds}`) | Học sinh xem đề, nộp / nộp lại |
+| `teaching/classes/{id}/homework` · `teaching/classes/{id}/steps/{stepId}/submissions` · `teaching/submissions/{id}` · `teaching/submissions/{id}/grade` (`{action: grade\|return, score, feedback, annotations}`) | Giáo viên xem bài nộp, chấm, trả lại |
+| `teaching/tutoring/offers` (GET, POST) · `teaching/tutoring/offers/{id}` (PUT) · `teaching/tutoring/bookings?status=` · `…/bookings/{id}/approve\|decline\|cancel` | Giáo viên: khung giờ, yêu cầu đặt lịch |
+| `tutoring/offers` · `tutoring/offers/{id}` · `tutoring/offers/{id}/slots` · `tutoring/offers/{id}/bookings` (POST) · `my/bookings` · `my/bookings/{id}/cancel` | Học sinh đặt lịch học kèm |
+| `teaching/profile` (GET, PUT) · `public/teachers/{username\|id}` (không cần đăng nhập) | Hồ sơ giáo viên |
+| `/p/giao-vien/{username}` · `/p/lop-hoc/{id}` · `/sitemap.xml` · `/robots.txt` (ngoài `/api`, trả HTML / XML / text) | Trang cho máy tìm kiếm |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Upload | Đúng như `analyst.md`: trình duyệt PUT thẳng lên Garage bằng presigned URL (15 phút), `Content-Type` nằm trong chữ ký (gửi sai kiểu → Garage từ chối). Bucket tên `files` nên URL path-style `/files/{key}` dùng chung domain. Sau khi upload, API HEAD + đọc 16 byte đầu: sai kích thước / sai định dạng → xóa file. Ảnh nội dung ≤ 5 MB (PNG, JPG, GIF, WebP); bài làm ≤ 15 MB (thêm PDF), ảnh chụp lớn hơn 2.200 px được thu nhỏ trên trình duyệt |
+| Xem file | `GET /api/files/{id}` chuyển hướng sang presigned GET 1 giờ, ép `Content-Type` + `Content-Disposition` (Garage không bao giờ trả được trang HTML). Ảnh nội dung: ai có link cũng xem (ID ngẫu nhiên 122 bit) để `<img>` trong Markdown hiện được. Bài làm: link có chữ ký HMAC hết hạn ~6 giờ, chỉ cấp cho học sinh đó và giáo viên chủ lớp |
+| Dev | Vite chuyển `/files` vào Garage với `changeOrigin: false` (dạng chuỗi của Vite tự đổi `Host` → chữ ký sai, đã gặp khi thử). Khóa dev cố định trong `backend/.env.example`; `sh deploy/garage/init.sh` tạo layout + bucket + khóa (chạy lại không sao) |
+| Bài tập | Mỗi học sinh một bài nộp / bước; nộp lại thay toàn bộ file khi chưa chấm hoặc bị trả lại; quá hạn vẫn nộp (đánh dấu muộn). Bước xong khi đã nộp (bị trả lại = chưa xong). Thang điểm tùy chọn (không có = chỉ nhận xét). Vẽ nhận xét: canvas trên trình duyệt ghép ảnh gốc + nét vẽ thành ảnh JPEG mới, lưu cạnh ảnh gốc (học sinh xem được cả hai) |
+| Nhắc hạn nộp | Vòng 60 giây của `api`: bước bài tập còn ≤ 24 giờ tới hạn → "nhận" (bước, hạn nộp) bằng `INSERT … ON CONFLICT DO NOTHING RETURNING`, nhắc học sinh được giao mà chưa nộp; đổi hạn nộp thì nhắc lại |
+| Học kèm | Khung giờ theo giờ VN, chia thành các khoảng bằng thời lượng một buổi; bỏ khoảng trùng buổi học khác của giáo viên và yêu cầu đang chờ / đã nhận; đặt trước tối thiểu / tối đa theo cài đặt. Chỉ mục duy nhất `(teacher_id, starts_at)` cho yêu cầu đang chờ / đã nhận → hai người bấm cùng lúc chỉ một người được. Mỗi học sinh tối đa 3 yêu cầu chờ với một giáo viên. Nhận → buổi học mời riêng học sinh (học sinh không cần thuộc lớp học của giáo viên khi khung mở cho mọi tài khoản); link họp chỉ lộ sau khi được nhận |
+| Lộ trình riêng | Bước có `audienceGroupIds` / `audienceUserIds` (rỗng = cả lớp); nhóm phải của giáo viên, học sinh phải đang học lớp. Mốc tự ẩn nếu mọi bước dưới nó không giao cho học sinh đó. Tiến độ, "Ôn tập hôm nay", báo cáo phụ huynh chỉ tính bước được giao; bảng tiến độ của giáo viên hiện "—" ở ô không giao; trang công khai không hiện bước riêng |
+| Trang công khai | SPA không có nội dung khi chưa chạy JavaScript nên api dựng sẵn HTML nhẹ (không cần SSR cho cả ứng dụng); nút "Vào học" / "Xem trong ứng dụng" dẫn vào SPA. Giáo viên tắt công khai → 404 với người khác, bỏ khỏi sitemap. Hồ sơ chưa sửa lần nào dùng phần giới thiệu trong hồ sơ đăng ký giáo viên đã duyệt |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 69 / 69 đạt + 1 test chạy với Garage thật (`cargo test -p sls-core --lib storage -- --ignored`: upload, gửi sai `Content-Type` bị 403, HEAD, đọc vài byte, tải với `Content-Type` ép, xóa — đạt). Thêm: HMAC theo RFC 4231, chữ ký khớp ví dụ presigned của AWS, mã hóa URI, chữ ký định dạng file, tên lưu trên kho, chia khung giờ học kèm theo giờ VN, bỏ giờ bận, lộ trình riêng (mốc tự ẩn), mô tả ngắn / thoát HTML trang công khai, cấu hình `S3_*` |
+| Backend integration test | 93 / 93 đạt — thêm `coursework` 5: upload + link xem (sai loại, quá lớn, chưa upload, nội dung giả ảnh bị xóa, link bài làm phải có chữ ký); bài tập (thư viện, nộp, file của người khác bị chặn, chấm + ảnh vẽ, trả lại, nộp lại, tiến độ, nhắc hạn nộp đúng người một lần, nộp muộn, giáo viên xem thử không nộp được, bài tập bị ẩn không xuất bản được); lộ trình riêng (nhóm / học sinh, mốc ẩn, bước không giao → 404, tiến độ); học kèm (chỉ học sinh của giáo viên, trùng giờ, nhận → buổi học + `.ics`, từ chối, học sinh hủy → hủy buổi, tối đa 3 yêu cầu chờ, mở cho mọi tài khoản); hồ sơ + trang công khai (JSON, HTML có Open Graph / schema.org, thoát HTML, không lộ bước riêng, sitemap, tắt công khai, lớp riêng tư 404) |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 43 / 43 đạt (thêm kiểm tra file trước khi upload, chữ thay thế ảnh, nhóm khoảng trống theo ngày, mô tả khung giờ, menu Học kèm 1-1 / Bài tập về nhà); `npm run build` đạt |
+| Trình duyệt | Giáo viên: soạn bài tập, chèn ảnh (upload thật qua Garage, xem trước hiện ảnh), thêm bước bài tập có hạn nộp vào lộ trình + chọn "Dành cho", xuất bản; tab Bài tập → danh sách bài nộp → chấm: vẽ dấu tích + gạch chân lên ảnh, điểm 9,5, nhận xét có công thức; mở lịch học kèm (2 khung giờ) → nhận yêu cầu → email lời mời kèm `.ics` trong Mailpit. Học sinh: bước bài tập trong lớp học, đề bài có ảnh, nộp 2 trang ảnh + lời nhắn, email nhắc hạn nộp; xem bài đã chấm (điểm, nhận xét, ảnh có nét vẽ); học kèm: giờ thứ Ba bị ẩn vì trùng buổi học sẵn có, đặt 19:00 thứ Hai. Giáo viên mới: hồ sơ công khai (ảnh đại diện, giới thiệu) → trang trong ứng dụng + trang `/p/giao-vien/…`; trang `/p/lop-hoc/…` có lộ trình. Sửa 2 lỗi phát hiện khi thử: proxy `/files` của Vite đổi `Host` (Garage báo 403), ô chọn màu của hộp vẽ bị kéo dãn |
+
+**Dữ liệu thử thêm trong DB dev:** bài tập "Bài tập về nhà — Hệ phương trình" (bước cuối của lộ trình "Toán 9", `hs.thu` đã nộp, đã chấm 9,5), lịch học kèm "Học kèm Toán 9 — ôn thi vào 10" của admin (T2 / T3 19:00–21:00, `hs.thu` đã được nhận buổi 19:00 thứ Hai 16/11), giáo viên `gv.lan` (cùng mật khẩu dev với `hs.thu`, có hồ sơ công khai).
+
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)
 
 Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".
@@ -212,7 +264,8 @@ Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhi�
 | `deploy/.env.example` (cấu hình từng máy) + `deploy/Caddyfile` (SPA + `/api`, cache `/assets`, HTTPS tự động khi có tên miền) | ✅ |
 | Worker gửi email qua SMTP có TLS: `SMTP_TLS` = `starttls` (mặc định, cổng 587) · `tls` (cổng 465) · `none` (Mailpit khi dev); kiểm tra chứng chỉ bằng bộ CA gói sẵn (`webpki-roots`), thêm CA riêng bằng `SMTP_CA_FILE`. Test: 8 unit test cấu hình + gửi thật qua Mailpit bật STARTTLS và TLS với CA tự tạo | ✅ (2026-11-08) |
 | Sao lưu Postgres theo lịch (`pg_dump`) | Chưa làm |
-| `import-worker`, `media-worker`, `ai-service`, Garage, LiveKit: thêm vào compose khi làm các module tương ứng | Để sau |
+| Garage (lưu file): profile `garage`, `deploy/garage/init.sh prod`, Caddy chuyển `/files/*` | ✅ (2026-11-13, đợt 5) |
+| `import-worker`, `media-worker`, `ai-service`, LiveKit: thêm vào compose khi làm các module tương ứng | Để sau |
 
 ### M6 — SSO
 

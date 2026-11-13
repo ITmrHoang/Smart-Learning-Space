@@ -156,6 +156,32 @@ export const teachingApi = {
   updateDeck: (id, data) => http.put(`/teaching/decks/${id}`, data),
   archiveDeck: (id) => http.del(`/teaching/decks/${id}`),
   deckFromQuestions: (id, questionIds) => http.post(`/teaching/decks/${id}/from-questions`, { questionIds }),
+
+  // Bài tập về nhà (M22)
+  assignments: (query) => http.get('/teaching/assignments', query),
+  assignment: (id) => http.get(`/teaching/assignments/${id}`),
+  createAssignment: (data) => http.post('/teaching/assignments', data),
+  updateAssignment: (id, data) => http.put(`/teaching/assignments/${id}`, data),
+  archiveAssignment: (id) => http.del(`/teaching/assignments/${id}`),
+  classHomework: (id) => http.get(`/teaching/classes/${id}/homework`),
+  stepSubmissions: (id, stepId) => http.get(`/teaching/classes/${id}/steps/${stepId}/submissions`),
+  submission: (id) => http.get(`/teaching/submissions/${id}`),
+  /** data: { action: grade | return, score, feedback, annotations: [{ position, fileId }] } */
+  gradeSubmission: (id, data) => http.post(`/teaching/submissions/${id}/grade`, data),
+
+  // Học kèm 1-1 (M23)
+  tutoringOffers: () => http.get('/teaching/tutoring/offers'),
+  createOffer: (data) => http.post('/teaching/tutoring/offers', data),
+  updateOffer: (id, data) => http.put(`/teaching/tutoring/offers/${id}`, data),
+  /** status: pending | upcoming | all */
+  bookings: (status) => http.get('/teaching/tutoring/bookings', { status }),
+  approveBooking: (id) => http.post(`/teaching/tutoring/bookings/${id}/approve`),
+  declineBooking: (id, reason) => http.post(`/teaching/tutoring/bookings/${id}/decline`, { reason }),
+  cancelBooking: (id, reason) => http.post(`/teaching/tutoring/bookings/${id}/cancel`, { reason }),
+
+  // Hồ sơ giáo viên công khai (M25)
+  profile: () => http.get('/teaching/profile'),
+  updateProfile: (data) => http.put('/teaching/profile', data),
 };
 
 /** Học sinh: lớp học, lộ trình. */
@@ -175,6 +201,8 @@ export const learnApi = {
   /** rating: again | hard | good | easy */
   review: (id, stepId, cardId, rating) => http.post(`/classes/${id}/steps/${stepId}/reviews`, { cardId, rating }),
   myReviews: () => http.get('/my/reviews'),
+  stepHomework: (id, stepId) => http.get(`/classes/${id}/steps/${stepId}/homework`),
+  submitHomework: (id, stepId, data) => http.put(`/classes/${id}/steps/${stepId}/homework`, data),
 };
 
 /** Lượt làm bài. */
@@ -235,4 +263,28 @@ export const guardianApi = {
   subscription: (token) => http.get('/guardians/subscription', { token }),
   unsubscribe: (token) => http.post('/guardians/unsubscribe', { token }),
   subscribe: (token) => http.post('/guardians/subscribe', { token }),
+};
+
+/** File (M21): xin link upload → trình duyệt PUT thẳng lên Garage → báo xong. Dùng `utils/upload.js`. */
+export const fileApi = {
+  /** data: { purpose: content | homework, name, contentType, size } */
+  ticket: (data) => http.post('/files', data),
+  complete: (id) => http.post(`/files/${id}/complete`),
+};
+
+/** Học kèm 1-1 (M23) — phía học sinh. */
+export const tutoringApi = {
+  offers: () => http.get('/tutoring/offers'),
+  offer: (id) => http.get(`/tutoring/offers/${id}`),
+  slots: (id) => http.get(`/tutoring/offers/${id}/slots`),
+  book: (id, startsAt, message) => http.post(`/tutoring/offers/${id}/bookings`, { startsAt, message }),
+  /** status: pending | upcoming | all */
+  mine: (status) => http.get('/my/bookings', { status }),
+  cancel: (id, reason) => http.post(`/my/bookings/${id}/cancel`, { reason }),
+};
+
+/** Hồ sơ giáo viên công khai (M25), xem được cả khi chưa đăng nhập. */
+export const publicApi = {
+  /** key: username hoặc id */
+  teacher: (key) => http.get(`/public/teachers/${encodeURIComponent(key)}`),
 };

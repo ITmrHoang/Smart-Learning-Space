@@ -75,6 +75,8 @@
 
     <GuardiansPanel v-if="auth.user?.role === 'student'" />
 
+    <TeacherProfilePanel v-if="auth.user?.role === 'teacher'" />
+
     <section class="panel">
       <h2>Phiên đăng nhập</h2>
       <p class="muted">
@@ -92,6 +94,7 @@ import { useRoute } from 'vue-router';
 
 import { authApi } from '../api';
 import GuardiansPanel from '../components/GuardiansPanel.vue';
+import TeacherProfilePanel from '../components/TeacherProfilePanel.vue';
 import LinkedAccounts from '../components/LinkedAccounts.vue';
 import { useAuthStore } from '../stores/auth';
 import { formatDateTime, useSubmit } from '../utils/form';

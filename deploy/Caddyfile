@@ -1,5 +1,5 @@
-# Caddy: phục vụ frontend (file tĩnh) và chuyển /api/* sang service api.
-# SITE_ADDRESS, API_UPSTREAM đặt trong deploy/docker-compose.yml (lấy từ deploy/.env).
+# Caddy: phục vụ frontend (file tĩnh), chuyển /api/* sang service api và /files/* sang Garage.
+# SITE_ADDRESS, API_UPSTREAM, GARAGE_UPSTREAM đặt trong deploy/docker-compose.yml (lấy từ deploy/.env).
 
 {$SITE_ADDRESS} {
 	encode zstd gzip
@@ -11,7 +11,25 @@
 		-Server
 	}
 
+	# File trên Garage (upload / tải bằng presigned URL do api ký). Giữ nguyên Host + đường dẫn để chữ ký khớp.
+	# Kiểu file khi tải do api ép trong link (chỉ ảnh / PDF) nên Garage không trả được trang HTML.
+	handle /files/* {
+		header {
+			X-Frame-Options SAMEORIGIN
+		}
+		request_body {
+			max_size 20MB
+		}
+		reverse_proxy {$GARAGE_UPSTREAM}
+	}
+
 	handle /api/* {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	# Trang công khai cho máy tìm kiếm / chia sẻ mạng xã hội (HTML do api dựng sẵn) + sitemap / robots.
+	@seo path /p/* /sitemap.xml /robots.txt
+	handle @seo {
 		reverse_proxy {$API_UPSTREAM}
 	}
 

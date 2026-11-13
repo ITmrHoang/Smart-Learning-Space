@@ -15,6 +15,7 @@ pub mod pagination;
 pub mod rate_limit;
 pub mod security;
 pub mod slug;
+pub mod storage;
 
 pub use context::AppContext;
 pub use error::{AppError, AppResult};

@@ -33,6 +33,7 @@ export const MENU = [
       { to: '/kham-pha', label: 'Tìm lớp học' },
       { to: '/lich-hoc', label: 'Lịch học' },
       { to: '/on-tap', label: 'Ôn tập hôm nay' },
+      { to: '/hoc-kem', label: 'Học kèm 1-1' },
     ],
   },
   {
@@ -43,7 +44,9 @@ export const MENU = [
       { to: '/day-hoc/bai-hoc', label: 'Bài học', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/cau-hoi', label: 'Ngân hàng câu hỏi', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/de', label: 'Đề ôn tập / kiểm tra', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/bai-tap', label: 'Bài tập về nhà', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/the-ghi-nho', label: 'Thẻ ghi nhớ', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/hoc-kem', label: 'Học kèm 1-1', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/nhom', label: 'Nhóm học sinh', permission: P.TEACHING_MANAGE },
     ],
   },

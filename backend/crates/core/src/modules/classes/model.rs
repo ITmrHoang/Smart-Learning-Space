@@ -110,6 +110,8 @@ pub enum StepKind {
     Session,
     /// Bộ thẻ ghi nhớ — xong khi đã ôn mọi thẻ ít nhất một lần.
     Deck,
+    /// Bài tập về nhà — xong khi đã nộp (giáo viên trả lại để làm lại thì chưa xong).
+    Homework,
 }
 
 impl StepKind {
@@ -120,6 +122,7 @@ impl StepKind {
             StepKind::Exam => "exam",
             StepKind::Session => "session",
             StepKind::Deck => "deck",
+            StepKind::Homework => "homework",
         }
     }
 }
@@ -156,9 +159,26 @@ pub struct Step {
     pub session_id: Option<Uuid>,
     #[serde(default)]
     pub deck_id: Option<Uuid>,
+    #[serde(default)]
+    pub assignment_id: Option<Uuid>,
+    /// Bước bài tập: hạn nộp.
+    #[serde(default)]
+    pub due_at: Option<DateTime<Utc>>,
     pub unlock: Unlock,
     /// Bước đề: điểm cao nhất phải ≥ mức này mới tính là xong.
     pub pass_score: Option<f64>,
+    /// Lộ trình riêng: bước chỉ dành cho các nhóm / học sinh này. Cả hai rỗng = cả lớp.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audience_group_ids: Vec<Uuid>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audience_user_ids: Vec<Uuid>,
+}
+
+impl Step {
+    /// Bước dành cho cả lớp (không giới hạn nhóm / học sinh).
+    pub fn for_everyone(&self) -> bool {
+        self.audience_group_ids.is_empty() && self.audience_user_ids.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -170,8 +190,12 @@ pub struct StepRow {
     pub exam_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
     pub deck_id: Option<Uuid>,
+    pub assignment_id: Option<Uuid>,
+    pub due_at: Option<DateTime<Utc>>,
     pub unlock: String,
     pub pass_score: Option<f64>,
+    pub audience_group_ids: Vec<Uuid>,
+    pub audience_user_ids: Vec<Uuid>,
 }
 
 impl From<StepRow> for Step {
@@ -183,6 +207,7 @@ impl From<StepRow> for Step {
                 "exam" => StepKind::Exam,
                 "session" => StepKind::Session,
                 "deck" => StepKind::Deck,
+                "homework" => StepKind::Homework,
                 _ => StepKind::Milestone,
             },
             title: r.title,
@@ -190,8 +215,12 @@ impl From<StepRow> for Step {
             exam_id: r.exam_id,
             session_id: r.session_id,
             deck_id: r.deck_id,
+            assignment_id: r.assignment_id,
+            due_at: r.due_at,
             unlock: if r.unlock == "previous" { Unlock::Previous } else { Unlock::Free },
             pass_score: r.pass_score,
+            audience_group_ids: r.audience_group_ids,
+            audience_user_ids: r.audience_user_ids,
         }
     }
 }

@@ -1,0 +1,17 @@
+# Garage cho môi trường dev: 1 node, dữ liệu trong volume `garagedata`.
+# Giá trị ở đây CHỈ dùng cho dev. Production: xem deploy/garage/garage.toml.example.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret = "5c1d2c3e4f5061728394a5b6c7d8e9f00112233445566778899aabbccddeeff0"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+
+[admin]
+api_bind_addr = "[::]:3903"

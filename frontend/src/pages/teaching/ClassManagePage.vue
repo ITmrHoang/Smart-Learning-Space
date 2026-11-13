@@ -61,6 +61,10 @@
         </div>
       </section>
 
+      <section v-else-if="tab === 'homework'" class="panel">
+        <ClassHomework :classId="cls.id" />
+      </section>
+
       <section v-else-if="tab === 'report'" class="panel">
         <ClassReport :classId="cls.id" />
       </section>
@@ -91,8 +95,11 @@
                   {{ st.progress.percent }}%
                   <div class="progress-bar"><span :style="{ width: `${st.progress.percent}%` }" /></div>
                 </td>
-                <td v-for="c in st.cells" :key="c.stepId" class="cell" :class="{ done: c.done }">
-                  <template v-if="c.score != null">{{ formatScore(c.score) }}/{{ formatScore(c.maxScore) }}</template>
+                <td v-for="c in st.cells" :key="c.stepId" class="cell" :class="{ done: c.done, unassigned: !c.assigned }" :title="c.assigned ? '' : 'Bước không giao cho học sinh này'">
+                  <template v-if="!c.assigned">—</template>
+                  <template v-else-if="c.score != null">{{ formatScore(c.score) }}/{{ formatScore(c.maxScore) }}</template>
+                  <template v-else-if="c.homeworkStatus === 'submitted'">Chờ chấm</template>
+                  <template v-else-if="c.homeworkStatus === 'returned'">Làm lại</template>
                   <template v-else>{{ c.done ? '✓' : '' }}</template>
                 </td>
               </tr>
@@ -146,6 +153,7 @@ import PromptModal from '../../components/PromptModal.vue';
 import QaPanel from '../../components/learning/QaPanel.vue';
 import ClassFormModal from '../../components/teaching/ClassFormModal.vue';
 import ClassReport from '../../components/teaching/ClassReport.vue';
+import ClassHomework from '../../components/teaching/ClassHomework.vue';
 import PathEditor from '../../components/teaching/PathEditor.vue';
 import { formatDateTime } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
@@ -159,7 +167,7 @@ const members = ref([]);
 const progress = ref(null);
 const error = ref('');
 /** Tab theo `?tab=` (link trong thông báo): bao-cao | hoi-dap */
-const TAB_QUERY = { 'bao-cao': 'report', 'hoi-dap': 'qa' };
+const TAB_QUERY = { 'bao-cao': 'report', 'hoi-dap': 'qa', 'bai-tap': 'homework' };
 const tab = ref(TAB_QUERY[route.query.tab] ?? 'path');
 const qaCounts = ref({ openThreads: 0, openReports: 0 });
 const editOpen = ref(false);
@@ -172,6 +180,7 @@ const tabs = computed(() => [
   { value: 'path', label: 'Lộ trình' },
   { value: 'members', label: `Học sinh${cls.value?.pendingCount ? ` (${cls.value.pendingCount} chờ duyệt)` : ''}` },
   { value: 'progress', label: 'Tiến độ' },
+  { value: 'homework', label: 'Bài tập' },
   { value: 'report', label: 'Báo cáo' },
   {
     value: 'qa',
@@ -310,5 +319,9 @@ onMounted(() => {
 }
 .cell.done {
   background: color-mix(in srgb, var(--hui-success, #52c41a) 14%, transparent);
+}
+.cell.unassigned {
+  color: var(--hui-text-muted, #9ca3af);
+  background: var(--hui-bg-secondary, #f5f6f8);
 }
 </style>

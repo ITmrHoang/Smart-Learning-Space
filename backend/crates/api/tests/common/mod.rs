@@ -24,6 +24,7 @@ use sls_core::{
     },
     rate_limit::RateLimiter,
     security::password::hash_password_sync,
+    storage::Storage,
 };
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -96,7 +97,8 @@ impl TestApp {
     }
 
     pub fn with_config(pool: PgPool, config: Config, limiter: RateLimiter) -> Self {
-        let ctx = AppContext::new(config, pool, JobQueue::memory(), limiter, None);
+        let mut ctx = AppContext::new(config, pool, JobQueue::memory(), limiter, None);
+        ctx.storage = Storage::memory();
         Self { router: build_router(ctx.clone()), ctx }
     }
 

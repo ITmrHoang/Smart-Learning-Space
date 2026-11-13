@@ -9,6 +9,7 @@
 //!   bản mới nhất. Tiến độ gắn với ID bước nên đổi thứ tự / sửa không mất tiến độ (xem `path.rs`).
 
 pub mod dto;
+pub mod homework;
 pub mod model;
 pub mod path;
 pub mod report;

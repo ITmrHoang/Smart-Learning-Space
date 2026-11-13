@@ -21,7 +21,7 @@ use tracing::Level;
 use crate::{controllers, middleware::require_admin};
 
 const REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
-/// Giới hạn kích thước body JSON (upload file sẽ đi thẳng lên Garage, không qua API).
+/// Giới hạn kích thước body JSON (file upload thẳng lên Garage bằng presigned URL, không qua API).
 const BODY_LIMIT: usize = 1024 * 1024;
 
 pub fn build_router(ctx: AppContext) -> Router {
@@ -40,7 +40,14 @@ pub fn build_router(ctx: AppContext) -> Router {
         .merge(controllers::teachers::routes())
         .merge(controllers::learning::routes())
         .merge(controllers::community::routes())
-        .nest("/teaching", controllers::teaching::routes().merge(controllers::community::teaching_routes()))
+        .merge(controllers::files::routes())
+        .merge(controllers::coursework::routes())
+        .nest(
+            "/teaching",
+            controllers::teaching::routes()
+                .merge(controllers::community::teaching_routes())
+                .merge(controllers::coursework::teaching_routes()),
+        )
         .nest("/admin", admin)
         .fallback(|| async { AppError::not_found("API không tồn tại.") });
 
@@ -61,7 +68,8 @@ pub fn build_router(ctx: AppContext) -> Router {
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(RequestBodyLimitLayer::new(BODY_LIMIT));
 
-    Router::new().nest("/api", api).layer(layers).with_state(ctx)
+    // Trang công khai cho máy tìm kiếm (HTML) + sitemap / robots: nằm ngoài /api.
+    Router::new().nest("/api", api).merge(controllers::coursework::seo_routes()).layer(layers).with_state(ctx)
 }
 
 /// Dev chạy qua proxy của Vite (cùng origin) nên không cần CORS; chỉ bật cho các origin khai báo.
