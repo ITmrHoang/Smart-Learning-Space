@@ -173,6 +173,39 @@ Sau này sẽ tách thêm khi có nhu cầu thật: service AI viết bằng Pyt
 
 Quy tắc để sau này tách dễ: module A **không** gọi repository của module B, chỉ gọi service public của B. Mỗi module chỉ ghi vào các bảng của chính nó.
 
+### Tách việc nặng, AI, live và chạy nhiều máy [mới 2026-11-08 — đã chốt]
+
+**Chọn cách giao tiếp giữa các service:**
+
+| Loại việc | Dùng | Lý do |
+|---|---|---|
+| Người dùng đang chờ, xong trong vài giây (chatbot, gợi ý, embedding) | **gRPC** (`tonic` ↔ Python `grpcio`) | Nhanh, trả kết quả dạng stream (chatbot hiện từng chữ) |
+| Việc lâu, tính bằng phút (import Word / PDF, OCR, AI sinh đề hàng loạt, chuyển mã video) | **RabbitMQ** + thông báo khi xong | Gọi gRPC giữ kết nối nhiều phút, máy xử lý khởi động lại là mất việc. Hàng đợi: không mất việc, tự thử lại, tự xếp hàng khi đông; thêm máy = chạy thêm worker |
+| Trạng thái việc (đang chờ / đang làm / xong / lỗi) | **PostgreSQL** | Nguồn sự thật để người dùng xem lại; DB không dùng làm kênh đồng bộ giữa các máy |
+
+**Luồng việc lâu (ví dụ import đề):**
+
+1. Giáo viên upload file thẳng lên Garage (presigned URL).
+2. `api` tạo dòng `import_jobs` (`queued`) và đẩy việc vào hàng đợi `sls.import`; trả `202` + `job_id`.
+3. `import-worker` (chạy ở máy khác được, nhiều bản): tải file từ Garage → tách câu (gọi `ai-service` qua gRPC nếu cần) → lưu ảnh + kết quả lên Garage → báo tiến độ / kết quả vào hàng đợi `sls.job_results`.
+4. `worker` chính (cạnh DB) nhận kết quả: trong một transaction cập nhật job, tạo **câu hỏi nháp** (giáo viên vẫn phải duyệt), gọi `notifications::notify`; rồi phát qua Valkey `user:{id}` → WebSocket → chuông + toast.
+
+Quy tắc:
+- **Máy xử lý nặng không ghi DB**, chỉ đọc / ghi Garage và hàng đợi → không cần mật khẩu DB, viết bằng Python được, đổi schema không ảnh hưởng.
+- Xử lý kết quả **idempotent** theo `job_id` (RabbitMQ có thể giao lại một tin).
+- Việc kẹt ở `queued` quá 5 phút (đẩy hàng đợi lỗi sau khi đã ghi DB) được tác vụ định kỳ đẩy lại; cần chặt hơn thì dùng bảng outbox.
+- Excel nhỏ vẫn đọc ngay trong request như hiện nay; Word / PDF / có AI đi qua hàng đợi.
+
+**AI:** `ai-service` viết bằng Python, chạy máy riêng (GPU khi cần). Chatbot: trình duyệt ↔ `api` (SSE / WebSocket) ↔ `ai-service` (gRPC server-streaming); `api` giữ phân quyền, giới hạn lượt hỏi, lưu lịch sử. AI chạy lâu đi qua hàng đợi như trên. `ai-service` chỉ đọc dữ liệu (API hoặc bảng `pgvector`), không ghi bảng nghiệp vụ.
+
+**Live:** không tự viết service live — LiveKit đã là server riêng, đặt trên máy có IP public và băng thông tốt (mở `7881/tcp`, UDP `50000–60000`, `3478`). Ghi hình: **LiveKit Egress** ghi thẳng lên Garage → webhook `egress_ended` về `api` → việc `TranscodeRecording` → `media-worker` (FFmpeg → HLS) → `sls.job_results` → gắn video vào lộ trình + thông báo học sinh. Không dùng gRPC, không dùng DB để đồng bộ. Nội dung bảng thông minh: WebSocket trong buổi, lưu định kỳ và bản cuối lên Garage / DB.
+
+**Chạy nhiều máy:** một project, một file `deploy/docker-compose.yml` cho mọi máy. Mỗi máy có `deploy/.env` riêng: `COMPOSE_PROFILES` = service chạy trên máy đó, `*_HOST` / `*_PORT` = địa chỉ service ở máy khác, `PUBLISH_IP` = IP LAN / VPN mở cổng cho máy khác. Service lưu dữ liệu chạy trên một máy; worker chạy nhiều máy. Qua Internet thì nối bằng WireGuard / Tailscale, không mở Postgres / Valkey / RabbitMQ ra IP public. Ví dụ 2 máy:
+
+| Máy A (chính) | Máy B (xử lý nặng) |
+|---|---|
+| Caddy, api, worker, PostgreSQL, Valkey, RabbitMQ, Garage, Meilisearch (LiveKit nếu máy A có IP public) | import-worker, media-worker, ai-service |
+
 ### Cấu trúc thư mục dự kiến
 
 ```

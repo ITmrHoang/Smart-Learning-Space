@@ -41,7 +41,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **chrono**, **time** | Ngày giờ (hạn token, hạn OTP), thời hạn cookie; lịch lặp hằng tuần tính theo giờ Việt Nam (UTC+7) |
 | **redis** (client) | Kết nối Valkey để đếm số lần thử (giới hạn tần suất) |
 | **lapin** | Kết nối RabbitMQ: API đẩy việc vào hàng đợi, worker nhận việc ra làm |
-| **lettre** | Worker gửi email qua SMTP (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên, lời mời / nhắc lịch buổi học). Lời mời kèm file lịch `.ics` (chuẩn RFC 5545, tự sinh) để học sinh thêm vào Google Calendar / Outlook / điện thoại; dời / hủy buổi thì lịch trong máy tự cập nhật |
+| **lettre** (rustls) | Worker gửi email qua SMTP có mã hóa TLS — STARTTLS hoặc TLS, đặt bằng `SMTP_TLS` (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên, lời mời / nhắc lịch buổi học). Lời mời kèm file lịch `.ics` (chuẩn RFC 5545, tự sinh) để học sinh thêm vào Google Calendar / Outlook / điện thoại; dời / hủy buổi thì lịch trong máy tự cập nhật |
 | **deunicode** | Bỏ dấu tiếng Việt khi tạo slug / gợi ý username (`Trần Thị` → `tran.thi`) |
 | **calamine** / **rust_xlsxwriter** | Đọc file Excel câu hỏi giáo viên tải lên / tạo file Excel mẫu để giáo viên điền |
 | **thiserror** / **anyhow** | Khai báo lỗi có kiểu trong thư viện / gom lỗi gọn khi khởi động chương trình |
@@ -84,7 +84,7 @@ Backend là một *modular monolith* gồm 3 crate:
 
 | Công nghệ | Tác dụng |
 |---|---|
-| **Caddy** | Reverse proxy production: tự cấp HTTPS, phục vụ file tĩnh của frontend, chuyển `/api` cho backend |
+| **Caddy** 2.11.4 | Reverse proxy production: tự cấp HTTPS, phục vụ file tĩnh của frontend, chuyển `/api` cho backend — đã cấu hình ở `deploy/Caddyfile` |
 | **Garage** | Lưu file (video, ảnh, tài liệu) tương thích S3, tự host; trình duyệt upload thẳng bằng presigned URL |
 | **LiveKit** | Dạy trực tiếp: video, âm thanh, chia sẻ màn hình (WebRTC) |
 
@@ -134,6 +134,34 @@ Nút đăng nhập chỉ hiện khi có `SSO_GOOGLE_*` / `SSO_MICROSOFT_*` trong
 
 Microsoft: nên bật optional claim `xms_edov` cho id token (Token configuration). Với tài khoản trường / công ty, hệ thống chỉ tin email khi có claim này (tài khoản Microsoft cá nhân luôn được tin).
 
+## Triển khai (production, một hoặc nhiều máy)
+
+Mọi máy dùng **chung project và chung file** [`deploy/docker-compose.yml`](deploy/docker-compose.yml). Mỗi máy chỉ khác nhau file `deploy/.env`: máy này chạy service nào (`COMPOSE_PROFILES`) và service ở máy khác nằm ở IP / cổng nào (`*_HOST`, `*_PORT`). Mẫu có giải thích từng biến: [`deploy/.env.example`](deploy/.env.example).
+
+```bash
+cp deploy/.env.example deploy/.env      # sửa mật khẩu, IP, danh sách service của máy này
+```
+
+```bash
+cd frontend && npm ci && npm run build  # chỉ cần trên máy chạy caddy
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+Ví dụ hai máy cùng mạng LAN / VPN, máy A có IP `10.0.0.1`:
+
+| | Máy A (chính) | Máy B (xử lý nặng) |
+|---|---|---|
+| `COMPOSE_PROFILES` | `postgres,valkey,rabbitmq,api,worker,caddy` | `worker` (sau này thêm `import-worker`, `media-worker`, `ai-service`) |
+| `PUBLISH_IP` | `10.0.0.1` (mở cổng cho máy B) | `127.0.0.1` |
+| `RABBITMQ_HOST` | `rabbitmq` (cùng máy) | `10.0.0.1` |
+
+- Service lưu dữ liệu (Postgres, Valkey, RabbitMQ) chỉ chạy **trên một máy**; worker chạy bao nhiêu máy cũng được, cùng lấy việc từ một hàng đợi.
+- Qua Internet: nối các máy bằng WireGuard / Tailscale rồi dùng IP VPN như IP LAN. **Không** mở Postgres / Valkey / RabbitMQ ra IP public.
+- Image backend build từ [`backend/Dockerfile`](backend/Dockerfile) (một lần build ra `sls-api` và `sls-worker`, image distroless chạy user không phải root). Migration tự chạy khi api khởi động.
+
 ## Test
 
 ```bash
@@ -164,6 +192,10 @@ backend/
 frontend/src/
   api/                        # API client (tự refresh token)
   stores/, router/, layouts/, pages/, components/, utils/
-deploy/docker-compose.dev.yml
+backend/Dockerfile            # image sls-api + sls-worker
+deploy/docker-compose.dev.yml # hạ tầng khi dev
+deploy/docker-compose.yml     # production, dùng chung cho mọi máy
+deploy/.env.example           # cấu hình từng máy: chạy service nào, service khác ở IP nào
+deploy/Caddyfile
 docs/implementation-plan.md
 ```

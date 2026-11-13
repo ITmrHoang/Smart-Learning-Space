@@ -1,0 +1,149 @@
+# Triển khai production. MỘT file cho mọi máy: máy nào chạy service nào do `deploy/.env` của máy đó quyết định.
+#
+#   cp deploy/.env.example deploy/.env    # sửa mật khẩu, IP, COMPOSE_PROFILES cho máy này
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# - Mỗi service có profile trùng tên service. `COMPOSE_PROFILES` trong `.env` = danh sách service chạy trên máy này.
+# - Service gọi nhau qua `*_HOST` / `*_PORT`: cùng máy thì để tên service + cổng mặc định, khác máy thì điền
+#   IP / tên máy của máy kia + cổng `*_PUBLISH_PORT` mà máy đó mở.
+# - Không dùng `depends_on` để `up` không kéo theo service của máy khác. api / worker mất kết nối lúc khởi động
+#   thì tự thoát và được Docker chạy lại (`restart: unless-stopped`) cho tới khi kết nối được.
+# - Cổng cho máy khác kết nối mở trên `PUBLISH_IP` (mặc định 127.0.0.1 = không máy nào khác vào được).
+#   Chỉ đặt IP mạng LAN / VPN (WireGuard, Tailscale), KHÔNG đặt IP public cho Postgres / Valkey / RabbitMQ.
+name: sls
+
+services:
+  postgres:
+    profiles: [postgres]
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sls
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: sls
+    ports:
+      - "${PUBLISH_IP:-127.0.0.1}:${POSTGRES_PUBLISH_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sls -d sls"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    profiles: [valkey]
+    image: valkey/valkey:9.1.3-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes", "--requirepass", "${VALKEY_PASSWORD:-}"]
+    ports:
+      - "${PUBLISH_IP:-127.0.0.1}:${VALKEY_PUBLISH_PORT:-6379}:6379"
+    volumes:
+      - valkeydata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" --no-auth-warning ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-}
+
+  rabbitmq:
+    profiles: [rabbitmq]
+    image: rabbitmq:4.4.0-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: sls
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-}
+    ports:
+      - "${PUBLISH_IP:-127.0.0.1}:${RABBITMQ_PUBLISH_PORT:-5672}:5672"
+      # Trang quản trị chỉ mở trên chính máy này (xem từ xa: ssh -L 15672:127.0.0.1:15672 ...).
+      - "127.0.0.1:${RABBITMQ_ADMIN_PORT:-15672}:15672"
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  api:
+    profiles: [api]
+    build: { context: ../backend, target: api }
+    image: sls-api:${SLS_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      DATABASE_URL: postgres://sls:${POSTGRES_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/sls
+      VALKEY_URL: redis://:${VALKEY_PASSWORD:-}@${VALKEY_HOST:-valkey}:${VALKEY_PORT:-6379}
+      AMQP_URL: amqp://sls:${RABBITMQ_PASSWORD:-}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/%2f
+      JWT_SECRET: ${JWT_SECRET:-}
+      ACCESS_TOKEN_TTL_SECS: ${ACCESS_TOKEN_TTL_SECS:-900}
+      REFRESH_TOKEN_TTL_SECS: ${REFRESH_TOKEN_TTL_SECS:-2592000}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Đứng sau Caddy: lấy IP người dùng từ X-Forwarded-For.
+      TRUST_PROXY: "true"
+      MAX_SESSIONS_PER_USER: ${MAX_SESSIONS_PER_USER:-2}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_FULL_NAME: ${BOOTSTRAP_ADMIN_FULL_NAME:-Quản trị viên}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      SSO_REDIRECT_BASE: ${SSO_REDIRECT_BASE:-}
+      SSO_GOOGLE_CLIENT_ID: ${SSO_GOOGLE_CLIENT_ID:-}
+      SSO_GOOGLE_CLIENT_SECRET: ${SSO_GOOGLE_CLIENT_SECRET:-}
+      SSO_MICROSOFT_CLIENT_ID: ${SSO_MICROSOFT_CLIENT_ID:-}
+      SSO_MICROSOFT_CLIENT_SECRET: ${SSO_MICROSOFT_CLIENT_SECRET:-}
+      SSO_MICROSOFT_TENANT: ${SSO_MICROSOFT_TENANT:-common}
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+      LOG_FORMAT: json
+    ports:
+      # Chỉ cần mở ra LAN khi Caddy chạy ở máy khác.
+      - "${API_PUBLISH_IP:-127.0.0.1}:${API_PUBLISH_PORT:-8080}:8080"
+
+  worker:
+    profiles: [worker]
+    build: { context: ../backend, target: worker }
+    image: sls-worker:${SLS_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      AMQP_URL: amqp://sls:${RABBITMQ_PASSWORD:-}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/%2f
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_CA_FILE: ${SMTP_CA_FILE:-}
+      RUST_LOG: ${RUST_LOG:-info}
+      LOG_FORMAT: json
+
+  caddy:
+    profiles: [caddy]
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    environment:
+      # Có tên miền → Caddy tự cấp HTTPS (Let's Encrypt). Chưa có tên miền → để `:80` (HTTP, dùng trong LAN).
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      API_UPSTREAM: ${API_HOST:-api}:${API_PORT:-8080}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Frontend build sẵn trên máy này: cd frontend && npm ci && npm run build
+      - ../frontend/dist:/srv:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+  # Service sau này (import-worker, media-worker, ai-service, garage, livekit…) thêm theo cùng mẫu:
+  # profile trùng tên, địa chỉ service khác đọc từ biến *_HOST trong .env.
+
+volumes:
+  pgdata:
+  valkeydata:
+  rabbitdata:
+  caddydata:
+  caddyconfig:

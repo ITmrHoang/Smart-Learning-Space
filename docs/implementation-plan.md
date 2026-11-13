@@ -147,6 +147,19 @@ Migration `20261108000001_groups_sessions_notifications.sql` (`student_groups`, 
 
 **Dữ liệu thử thêm trong DB dev:** nhóm "Nhóm ôn thi chuyên" (có `hs.thu`), buổi "Chữa đề kiểm tra chương 2" (8/11, là bước 4 của lộ trình, `hs.thu` đã điểm danh), lịch lặp "Ôn thi vào 10 — Hệ phương trình" (thứ Ba / thứ Năm 19:30, 8 buổi) và "Học kèm: phương trình bậc hai" (thứ Tư / thứ Sáu 14:00–16:00, 16 buổi).
 
+### Triển khai production, một hoặc nhiều máy (2026-11-08)
+
+Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".
+
+| Việc | Trạng thái |
+|---|---|
+| `backend/Dockerfile`: một lần build ra image `sls-api` + `sls-worker` (Rust 1.99.1, distroless Debian 13, user không phải root) | ✅ |
+| `deploy/docker-compose.yml` dùng chung mọi máy: mỗi service một profile trùng tên; địa chỉ service khác đọc từ `*_HOST` / `*_PORT`; cổng mở trên `PUBLISH_IP`; không dùng `depends_on` để `up` không kéo service của máy khác | ✅ |
+| `deploy/.env.example` (cấu hình từng máy) + `deploy/Caddyfile` (SPA + `/api`, cache `/assets`, HTTPS tự động khi có tên miền) | ✅ |
+| Worker gửi email qua SMTP có TLS: `SMTP_TLS` = `starttls` (mặc định, cổng 587) · `tls` (cổng 465) · `none` (Mailpit khi dev); kiểm tra chứng chỉ bằng bộ CA gói sẵn (`webpki-roots`), thêm CA riêng bằng `SMTP_CA_FILE`. Test: 8 unit test cấu hình + gửi thật qua Mailpit bật STARTTLS và TLS với CA tự tạo | ✅ (2026-11-08) |
+| Sao lưu Postgres theo lịch (`pg_dump`) | Chưa làm |
+| `import-worker`, `media-worker`, `ai-service`, Garage, LiveKit: thêm vào compose khi làm các module tương ứng | Để sau |
+
 ### M6 — SSO
 
 **M6.1 (đã xong)** — module `core/src/modules/sso`, migration `20261105000006_sso.sql` (`user_identities`, `sso_link_requests`).

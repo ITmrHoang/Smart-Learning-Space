@@ -12,52 +12,11 @@ use lapin::{
     options::{BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicQosOptions},
     types::FieldTable,
 };
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Attachment as MailAttachment, Mailbox, MultiPart, SinglePart, header::ContentType},
-    transport::smtp::authentication::Credentials,
-};
 use sls_core::jobs::{Email, Job, QUEUE_EMAIL, declare_queues};
 use tracing_subscriber::{EnvFilter, fmt};
 
-struct Mailer {
-    transport: AsyncSmtpTransport<Tokio1Executor>,
-    from: Mailbox,
-}
-
-impl Mailer {
-    fn from_env() -> anyhow::Result<Self> {
-        let host = std::env::var("SMTP_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let port: u16 = std::env::var("SMTP_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1025);
-        let from = std::env::var("SMTP_FROM").unwrap_or_else(|_| "Smart Learning Space <no-reply@sls.local>".into());
-        // Dev dùng Mailpit (SMTP không mã hóa). Production cần SMTP có TLS: sẽ bật feature TLS của lettre.
-        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
-        if let (Ok(user), Ok(pass)) = (std::env::var("SMTP_USERNAME"), std::env::var("SMTP_PASSWORD")) {
-            builder = builder.credentials(Credentials::new(user, pass));
-        }
-        Ok(Self { transport: builder.build(), from: from.parse().context("SMTP_FROM không hợp lệ")? })
-    }
-
-    async fn send(&self, email: &Email) -> anyhow::Result<()> {
-        let builder = Message::builder()
-            .from(self.from.clone())
-            .to(email.to.parse().context("địa chỉ nhận không hợp lệ")?)
-            .subject(&email.subject);
-        let message = if email.attachments.is_empty() {
-            builder.header(ContentType::TEXT_PLAIN).body(email.text.clone())?
-        } else {
-            // Nội dung chữ + file đính kèm (lịch .ics…)
-            let mut parts = MultiPart::mixed().singlepart(SinglePart::plain(email.text.clone()));
-            for a in &email.attachments {
-                let content_type = ContentType::parse(&a.content_type).context("content type đính kèm không hợp lệ")?;
-                parts = parts.singlepart(MailAttachment::new(a.filename.clone()).body(a.content.clone(), content_type));
-            }
-            builder.multipart(parts)?
-        };
-        self.transport.send(message).await?;
-        Ok(())
-    }
-}
+mod mailer;
+use mailer::{Mailer, SmtpConfig};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -70,7 +29,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let amqp_url = std::env::var("AMQP_URL").unwrap_or_else(|_| "amqp://127.0.0.1:5672/%2f".into());
-    let mailer = Mailer::from_env()?;
+    let smtp = SmtpConfig::from_env()?;
+    tracing::info!(?smtp, "cấu hình SMTP");
+    let mailer = Mailer::new(&smtp)?;
 
     let conn =
         Connection::connect(&amqp_url, ConnectionProperties::default()).await.context("không kết nối được RabbitMQ")?;
