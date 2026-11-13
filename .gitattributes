@@ -1,0 +1,2 @@
+# Script shell luôn xuống dòng kiểu LF (Windows tự đổi sang CRLF thì sh / bash chạy lỗi).
+*.sh text eol=lf
