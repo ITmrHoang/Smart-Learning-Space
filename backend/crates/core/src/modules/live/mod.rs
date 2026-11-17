@@ -277,10 +277,11 @@ pub fn status(ctx: &AppContext) -> LiveStatus {
     LiveStatus { enabled: ctx.config.live.is_some() }
 }
 
-/// Giáo viên chủ buổi / học sinh được vào: token theo vai trò, ghi điểm danh học sinh.
+/// Giáo viên chủ buổi / trợ giảng của lớp / học sinh được vào: token theo vai trò, ghi điểm danh học sinh.
 pub async fn join(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResult<LiveJoin> {
     let cfg = config(ctx)?;
-    let (s, is_owner) = sessions::enter_live(ctx, actor, session_id).await?;
+    let (s, role) = sessions::enter_live(ctx, actor, session_id).await?;
+    let is_owner = role == sessions::LiveRole::Teacher;
     let name: String =
         sqlx::query_scalar("SELECT full_name FROM users WHERE id = $1").bind(actor.id).fetch_one(&ctx.db).await?;
     let room = room_name(s.id);
@@ -298,6 +299,16 @@ pub async fn join(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResul
             can_publish_data: true,
             ..Default::default()
         }
+    } else if role == sessions::LiveRole::Assistant {
+        // Trợ giảng: nói, chiếu, vẽ như giáo viên; việc điều khiển người khác đi qua api (không cần roomAdmin).
+        VideoGrant {
+            room: Some(room),
+            room_join: true,
+            can_publish: true,
+            can_subscribe: true,
+            can_publish_data: true,
+            ..Default::default()
+        }
     } else {
         // Học sinh: mặc định tắt mic / camera; giáo viên mời thì api đổi quyền.
         VideoGrant {
@@ -308,7 +319,7 @@ pub async fn join(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResul
             ..Default::default()
         }
     };
-    Ok(join_info(cfg, &s, format!("u:{}", actor.id), name, if is_owner { "teacher" } else { "student" }, grant))
+    Ok(join_info(cfg, &s, format!("u:{}", actor.id), name, role.as_str(), grant))
 }
 
 // ---------- Giáo viên điều khiển phòng ----------
@@ -316,8 +327,9 @@ pub async fn join(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResul
 /// Cho / thu quyền bật mic, camera, chia sẻ màn hình của một học sinh (ngay lập tức, không cần vào lại).
 pub async fn set_media(ctx: &AppContext, actor: &Actor, session_id: Uuid, input: MediaInput) -> AppResult<()> {
     let cfg = config(ctx)?;
-    let s = sessions::own_live(ctx, actor, session_id).await?;
-    if user_of(&input.identity).is_none() || input.identity == format!("u:{}", actor.id) {
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
+    // Không đổi quyền của chính mình hay của giáo viên chủ buổi (trợ giảng cũng điều khiển phòng)
+    if user_of(&input.identity).is_none() || [actor.id, s.owner_id].iter().any(|u| input.identity == format!("u:{u}")) {
         return Err(bad_identity());
     }
     let mut sources = Vec::new();
@@ -336,7 +348,10 @@ pub async fn set_media(ctx: &AppContext, actor: &Actor, session_id: Uuid, input:
 /// Mời ra khỏi phòng (khách thì không vào lại được nữa).
 pub async fn remove(ctx: &AppContext, actor: &Actor, session_id: Uuid, input: IdentityInput) -> AppResult<()> {
     let cfg = config(ctx)?;
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
+    if input.identity == format!("u:{}", s.owner_id) {
+        return Err(bad_identity());
+    }
     if let Some(guest) = guest_of(&input.identity) {
         sqlx::query(
             "UPDATE live_guests SET status = 'removed', decided_at = now(), decided_by = $3 \
@@ -373,7 +388,7 @@ pub async fn board_turn(
     input: IdentityInput,
     start: bool,
 ) -> AppResult<()> {
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
     let user = user_of(&input.identity).ok_or_else(bad_identity)?;
     if start {
         sqlx::query("INSERT INTO live_board_turns (session_id, user_id) VALUES ($1, $2)")
@@ -477,7 +492,7 @@ pub async fn guest_state(ctx: &AppContext, guest_id: Uuid, token: &str) -> AppRe
 }
 
 pub async fn guests(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResult<Vec<GuestView>> {
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
     Ok(sqlx::query_as::<_, GuestView>(
         "SELECT id, name, status, created_at FROM live_guests WHERE session_id = $1 AND status IN ('waiting', 'admitted') \
          ORDER BY created_at",
@@ -495,7 +510,7 @@ pub async fn decide(
     guest_id: Option<Uuid>,
     input: DecideInput,
 ) -> AppResult<Vec<GuestView>> {
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
     sqlx::query(
         "UPDATE live_guests SET status = $3, decided_at = now(), decided_by = $4 \
          WHERE session_id = $1 AND status = 'waiting' AND ($2::uuid IS NULL OR id = $2)",
@@ -513,7 +528,7 @@ pub async fn decide(
 
 pub async fn save_poll(ctx: &AppContext, actor: &Actor, session_id: Uuid, input: PollInput) -> AppResult<PollView> {
     input.validate()?;
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
     let n = input.options.len();
     if !(2..=MAX_POLL_OPTIONS).contains(&n) || input.counts.len() != n {
         return Err(AppError::field("options", format!("Có từ 2 đến {MAX_POLL_OPTIONS} phương án.")));
@@ -546,7 +561,7 @@ pub async fn save_poll(ctx: &AppContext, actor: &Actor, session_id: Uuid, input:
 
 /// Lưu một trang bảng (ảnh + dữ liệu nét vẽ). Lưu lại cùng trang thì ghi đè.
 pub async fn save_board(ctx: &AppContext, actor: &Actor, session_id: Uuid, input: BoardPageInput) -> AppResult<()> {
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
     if !(0..MAX_BOARD_PAGES).contains(&input.page) {
         return Err(AppError::field("page", format!("Bảng tối đa {MAX_BOARD_PAGES} trang.")));
     }
@@ -566,7 +581,7 @@ pub async fn save_board(ctx: &AppContext, actor: &Actor, session_id: Uuid, input
 
 /// Giáo viên mở lại bảng đã lưu (dữ liệu nét vẽ từng trang).
 pub async fn board_data(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResult<Vec<Value>> {
-    let s = sessions::own_live(ctx, actor, session_id).await?;
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
     Ok(sqlx::query_scalar("SELECT data FROM live_board_pages WHERE session_id = $1 ORDER BY page")
         .bind(s.id)
         .fetch_all(&ctx.db)

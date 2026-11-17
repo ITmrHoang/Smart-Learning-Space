@@ -35,6 +35,9 @@ pub struct ClassQuery {
     /// Giáo viên: xem cả lớp học đã lưu trữ.
     #[serde(default)]
     pub archived: bool,
+    /// Giáo viên: các lớp mình làm trợ giảng (thay vì lớp của mình).
+    #[serde(default)]
+    pub assisting: bool,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
@@ -63,6 +66,12 @@ pub struct ClassResponse {
     pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Vai của người xem: owner | assistant (trang quản lý lớp ẩn việc chỉ chủ lớp làm được).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub my_role: Option<&'static str>,
+    /// Tên giáo viên chủ lớp (khi người xem là trợ giảng).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
 }
 
 impl From<ClassRow> for ClassResponse {
@@ -92,6 +101,8 @@ impl From<ClassRow> for ClassResponse {
             archived: c.archived_at.is_some(),
             created_at: c.created_at,
             updated_at: c.updated_at,
+            my_role: None,
+            owner_name: None,
         }
     }
 }

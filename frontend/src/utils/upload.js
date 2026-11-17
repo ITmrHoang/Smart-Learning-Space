@@ -2,17 +2,29 @@
  * Upload file (M21): xin link → trình duyệt PUT thẳng lên Garage (qua `/files/*` cùng domain) → báo xong.
  * - `content`: ảnh trong nội dung (bài học, câu hỏi, hỏi đáp, hồ sơ) — tối đa 5 MB.
  * - `homework`: ảnh / PDF bài làm — tối đa 15 MB; ảnh chụp điện thoại quá lớn được thu nhỏ trước khi gửi.
+ * - `import`: file Word (.docx) đề câu hỏi — tối đa 20 MB; API đọc một lần rồi xóa.
  */
 import { fileApi } from '../api';
 
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-export const LIMITS = { content: 5 * 1024 * 1024, homework: 15 * 1024 * 1024 };
+export const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const LIMITS = { content: 5 * 1024 * 1024, homework: 15 * 1024 * 1024, import: 20 * 1024 * 1024 };
+
+/** Loại file: máy không cài Office có thể báo rỗng cho .docx → đoán theo đuôi. */
+export function fileType(file) {
+  if (file?.type) return file.type;
+  return /\.docx$/i.test(file?.name ?? '') ? DOCX : '';
+}
 
 /** Lỗi trước khi upload ('' = hợp lệ). */
 export function checkFile(file, purpose) {
-  const types = purpose === 'homework' ? [...IMAGE_TYPES, 'application/pdf'] : IMAGE_TYPES;
-  if (!types.includes(file?.type)) {
-    return purpose === 'homework' ? 'Chỉ nhận ảnh (PNG, JPG, GIF, WebP) hoặc PDF.' : 'Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.';
+  if (purpose === 'import') {
+    if (fileType(file) !== DOCX) return 'Chỉ nhận file Word .docx (file .doc cũ: mở bằng Word rồi lưu lại dạng .docx).';
+  } else {
+    const types = purpose === 'homework' ? [...IMAGE_TYPES, 'application/pdf'] : IMAGE_TYPES;
+    if (!types.includes(file?.type)) {
+      return purpose === 'homework' ? 'Chỉ nhận ảnh (PNG, JPG, GIF, WebP) hoặc PDF.' : 'Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.';
+    }
   }
   if (!file.size) return 'File rỗng.';
   if (file.size > LIMITS[purpose]) return `File tối đa ${LIMITS[purpose] / 1024 / 1024} MB.`;
@@ -80,7 +92,7 @@ export async function uploadFile(file, purpose, { onProgress, name } = {}) {
   const ticket = await fileApi.ticket({
     purpose,
     name: name || ready.name || 'file',
-    contentType: ready.type,
+    contentType: fileType(ready),
     size: ready.size,
   });
   await putFile(ticket.uploadUrl, ready, ticket.headers, onProgress);

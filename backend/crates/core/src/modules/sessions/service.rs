@@ -20,6 +20,7 @@ use crate::{
     error::{AppError, AppResult},
     jobs::{Attachment, Email, Job},
     modules::{
+        classes::service as classes,
         groups,
         lessons::service as lessons,
         notifications::{self, NotificationKind},
@@ -637,18 +638,52 @@ const LIVE_OVERTIME: TimeDelta = TimeDelta::minutes(30);
 
 /// Vào phòng học trực tuyến của buổi: kiểm tra quyền + giờ như "Vào học", ghi điểm danh học sinh.
 /// Trả về buổi học và người vào có phải giáo viên chủ buổi không.
-pub async fn enter_live(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(SessionRow, bool)> {
+/// Vai trong phòng học trực tuyến.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveRole {
+    /// Giáo viên chủ buổi
+    Teacher,
+    /// Trợ giảng của lớp gắn với buổi: điều khiển phòng như giáo viên (trừ kết thúc buổi, link khách)
+    Assistant,
+    Student,
+}
+
+impl LiveRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Teacher => "teacher",
+            Self::Assistant => "assistant",
+            Self::Student => "student",
+        }
+    }
+}
+
+/// Trợ giảng (đang hoạt động) của lớp gắn với buổi học?
+async fn class_assistant(ctx: &AppContext, s: &SessionRow, user: Uuid) -> AppResult<bool> {
+    match s.class_id {
+        Some(class) => classes::is_assistant(&ctx.db, class, user).await,
+        None => Ok(false),
+    }
+}
+
+pub async fn enter_live(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(SessionRow, LiveRole)> {
     let s = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
     let (allowed, _) = can_access(ctx, actor, &s).await?;
     if !allowed {
         return Err(not_found());
     }
-    let is_owner = s.owner_id == actor.id;
-    live_window(&s, is_owner)?;
-    if !is_owner {
+    let role = if s.owner_id == actor.id {
+        LiveRole::Teacher
+    } else if class_assistant(ctx, &s, actor.id).await? {
+        LiveRole::Assistant
+    } else {
+        LiveRole::Student
+    };
+    live_window(&s, role != LiveRole::Student)?;
+    if role == LiveRole::Student {
         repo::mark_joined(&ctx.db, id, actor.id).await?;
     }
-    Ok((s, is_owner))
+    Ok((s, role))
 }
 
 /// Buổi học có phòng của hệ thống, đang trong giờ mở phòng (khách dùng chung quy tắc với học sinh).
@@ -676,6 +711,19 @@ pub fn live_window(s: &SessionRow, is_owner: bool) -> AppResult<()> {
 /// Buổi học (có phòng của hệ thống) của chính giáo viên.
 pub async fn own_live(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<SessionRow> {
     let s = load_own(ctx, actor, id).await?;
+    if s.room != "live" {
+        return Err(AppError::conflict("NOT_LIVE_ROOM", "Buổi học này dùng link họp ngoài."));
+    }
+    Ok(s)
+}
+
+/// Buổi có phòng của hệ thống mà người dùng điều khiển được: giáo viên chủ buổi hoặc trợ giảng của lớp.
+pub async fn live_staff(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<SessionRow> {
+    actor.require(Permission::TeachingManage)?;
+    let s = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
+    if s.owner_id != actor.id && !class_assistant(ctx, &s, actor.id).await? {
+        return Err(not_found());
+    }
     if s.room != "live" {
         return Err(AppError::conflict("NOT_LIVE_ROOM", "Buổi học này dùng link họp ngoài."));
     }

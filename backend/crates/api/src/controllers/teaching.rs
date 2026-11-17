@@ -13,6 +13,7 @@ use sls_core::{
     AppContext, AppResult,
     modules::{
         classes::{
+            assistants,
             dto::{
                 AddMemberRequest, ClassInput, ClassProgress, ClassQuery, ClassResponse, CopyRequest, MemberQuery,
                 MemberResponse, PathInput, PathResponse,
@@ -31,6 +32,7 @@ use sls_core::{
             dto::{
                 BulkCreateRequest, BulkCreateResponse, FolderInput, FolderResponse, ImportPreview, ImportQuery,
                 QuestionInput, QuestionQuery, QuestionResponse, RegradeResponse, SaveQuestionResponse,
+                WordImportRequest,
             },
             service as questions,
         },
@@ -64,6 +66,8 @@ pub fn routes() -> Router<AppContext> {
         .route("/classes/{id}/invite-code", post(regenerate_code))
         .route("/classes/{id}/members", get(list_members).post(add_member))
         .route("/classes/{id}/members/{user_id}/{action}", post(change_member))
+        .route("/classes/{id}/assistants", get(list_assistants).post(add_assistant))
+        .route("/classes/{id}/assistants/{user_id}", axum::routing::delete(remove_assistant))
         .route("/classes/{id}/path", get(get_path).put(save_path))
         .route("/classes/{id}/path/publish", post(publish_path))
         .route("/classes/{id}/progress", get(class_progress))
@@ -72,6 +76,8 @@ pub fn routes() -> Router<AppContext> {
         .route("/questions/bulk", post(bulk_create))
         .route("/questions/import/template", get(import_template))
         .route("/questions/import/preview", post(import_preview))
+        .route("/questions/import/word-template", get(import_word_template))
+        .route("/questions/import/word/preview", post(import_word_preview))
         .route("/questions/{id}", get(get_question).put(update_question).delete(archive_question))
         .route("/questions/{id}/regrade", post(regrade_question))
         .route("/question-folders", get(list_folders).post(create_folder))
@@ -231,6 +237,34 @@ async fn add_member(
     Ok((StatusCode::CREATED, Json(classes::add_member(&ctx, &actor, id, req).await?)))
 }
 
+// ---------- Trợ giảng (M32) ----------
+
+async fn list_assistants(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<Vec<assistants::AssistantView>>> {
+    Ok(Json(assistants::list(&ctx, &actor, id).await?))
+}
+
+async fn add_assistant(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    ValidatedJson(req): ValidatedJson<AddMemberRequest>,
+) -> AppResult<(StatusCode, Json<assistants::AssistantView>)> {
+    Ok((StatusCode::CREATED, Json(assistants::add(&ctx, &actor, id, req).await?)))
+}
+
+async fn remove_assistant(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam((id, user_id)): PathParam<(Uuid, Uuid)>,
+) -> AppResult<StatusCode> {
+    assistants::remove(&ctx, &actor, id, user_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn change_member(
     State(ctx): State<AppContext>,
     actor: Actor,
@@ -344,6 +378,27 @@ async fn import_template(actor: Actor) -> AppResult<impl IntoResponse> {
         ],
         bytes,
     ))
+}
+
+async fn import_word_template(actor: Actor) -> AppResult<impl IntoResponse> {
+    actor.require(sls_core::security::Permission::TeachingManage)?;
+    let bytes = questions::import_word_template()?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"mau-cau-hoi.docx\""),
+        ],
+        bytes,
+    ))
+}
+
+/// File Word upload trước lên Garage (`POST /api/files`, mục đích `import`) — có thể tới 20 MB kèm ảnh.
+async fn import_word_preview(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    JsonBody(req): JsonBody<WordImportRequest>,
+) -> AppResult<Json<ImportPreview>> {
+    Ok(Json(questions::import_word_preview(&ctx, &actor, req).await?))
 }
 
 /// Body là nội dung file .xlsx (không dùng multipart). Tối đa 1 MB như mọi request.

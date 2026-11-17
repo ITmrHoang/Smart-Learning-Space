@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeMessage, encodeMessage, formatElapsed, percent, roleOf, shortName, tally, updateHands } from './live';
+import { decodeMessage, encodeMessage, formatElapsed, isTeacher, percent, roleOf, shortName, tally, updateHands } from './live';
 
 describe('phòng học trực tuyến', () => {
   it('mã hóa / giải mã tin; bỏ tin hỏng', () => {
@@ -14,6 +14,9 @@ describe('phòng học trực tuyến', () => {
     expect(roleOf({ metadata: '{"role":"guest"}' })).toBe('guest');
     expect(roleOf({ metadata: '' })).toBe('student');
     expect(roleOf({ metadata: 'hỏng' })).toBe('student');
+    expect(isTeacher({ metadata: '{"role":"assistant"}' })).toBe(true);
+    expect(isTeacher({ metadata: '{"role":"teacher"}' })).toBe(true);
+    expect(isTeacher({ metadata: '{"role":"guest"}' })).toBe(false);
   });
 
   it('hàng đợi giơ tay giữ thứ tự, giơ lại không chen lên', () => {

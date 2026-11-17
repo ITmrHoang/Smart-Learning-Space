@@ -3,7 +3,7 @@
     <div class="page-header">
       <h1>Lớp học của tôi (giáo viên)</h1>
       <div class="row">
-        <hui-segmented :options="tabOptions" :value="archived ? 'archived' : 'active'" @change="setArchived($event.detail.value === 'archived')" />
+        <hui-segmented :options="tabOptions" :value="view" @change="setView($event.detail.value)" />
         <hui-button @hui-click="formOpen = true">Tạo lớp học</hui-button>
       </div>
     </div>
@@ -11,11 +11,12 @@
 
     <hui-alert v-if="list.error.value" severity="error" :description="list.error.value" />
     <div v-if="!list.loading.value && !list.items.value.length" class="panel empty muted">
-      {{ archived ? 'Chưa có lớp học nào được lưu trữ.' : 'Chưa có lớp học nào. Bấm "Tạo lớp học" để bắt đầu.' }}
+      {{ EMPTY[view] }}
     </div>
     <div class="card-list">
       <article v-for="c in list.items.value" :key="c.id" class="card">
         <RouterLink class="title" :to="{ name: 'teach-class', params: { id: c.id } }"><h3>{{ c.title }}</h3></RouterLink>
+        <p v-if="c.myRole === 'assistant'" class="small muted">Trợ giảng · lớp của {{ c.ownerName }}</p>
         <div class="row">
           <hui-tag size="sm">{{ subjectName(c.subjectId) }}</hui-tag>
           <hui-tag size="sm" color="info">{{ MODE_LABELS[c.mode] }}</hui-tag>
@@ -51,18 +52,25 @@ import { MODE_LABELS, VISIBILITY_LABELS } from '../../utils/teaching';
 
 const router = useRouter();
 const { data: master, load: loadMaster } = useMasterData();
-const list = usePagedList((q) => teachingApi.classes(q), { archived: false }, { pageSize: 24 });
-const archived = ref(false);
+const list = usePagedList((q) => teachingApi.classes(q), { archived: false, assisting: false }, { pageSize: 24 });
+const view = ref('active');
 const formOpen = ref(false);
 const tabOptions = [
   { value: 'active', label: 'Đang dạy' },
+  { value: 'assisting', label: 'Trợ giảng' },
   { value: 'archived', label: 'Đã lưu trữ' },
 ];
+const EMPTY = {
+  active: 'Chưa có lớp học nào. Bấm "Tạo lớp học" để bắt đầu.',
+  assisting: 'Bạn chưa làm trợ giảng lớp nào. Giáo viên chủ lớp mời bạn bằng username / email.',
+  archived: 'Chưa có lớp học nào được lưu trữ.',
+};
 const subjectName = (id) => master.value?.subjects.find((s) => s.id === id)?.name ?? '';
 
-function setArchived(v) {
-  archived.value = v;
-  list.setFilter('archived', v);
+function setView(v) {
+  view.value = v;
+  list.filters.assisting = v === 'assisting';
+  list.setFilter('archived', v === 'archived');
 }
 
 function onCreated(c) {

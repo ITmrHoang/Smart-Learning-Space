@@ -9,14 +9,14 @@ const SESSION_COLS: &str = "s.id, s.owner_id, s.schedule_id, s.class_id, s.title
 const SESSION_FROM: &str =
     " FROM sessions s LEFT JOIN classes c ON c.id = s.class_id JOIN users u ON u.id = s.owner_id";
 
-/// Điều kiện "học sinh `$u` được mời vào buổi `s`" (theo học sinh, lớp học đang học, nhóm).
+/// Điều kiện "học sinh `$u` được mời vào buổi `s`" (theo học sinh, lớp học đang học hoặc làm trợ giảng, nhóm).
 macro_rules! invited_cond {
     ($u:literal) => {
         concat!(
             "EXISTS (SELECT 1 FROM session_invitees i WHERE i.session_id = s.id AND (",
             "(i.target_type = 'user' AND i.target_id = ", $u, ") OR ",
             "(i.target_type = 'class' AND EXISTS (SELECT 1 FROM class_members m WHERE m.class_id = i.target_id ",
-            "AND m.user_id = ", $u, " AND m.role = 'student' AND m.status = 'active')) OR ",
+            "AND m.user_id = ", $u, " AND m.role IN ('student', 'assistant') AND m.status = 'active')) OR ",
             "(i.target_type = 'group' AND EXISTS (SELECT 1 FROM student_group_members g WHERE g.group_id = i.target_id ",
             "AND g.user_id = ", $u, "))))"
         )

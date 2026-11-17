@@ -1,11 +1,17 @@
 <template>
-  <hui-modal :open="open" title="Nhập câu hỏi từ Excel" size="lg" no-footer @hui-close="close">
+  <hui-modal :open="open" title="Nhập câu hỏi từ Excel / Word" size="lg" no-footer @hui-close="close">
     <div class="stack">
       <hui-alert v-if="error" severity="error" :description="error" />
-      <p class="muted small">
+      <hui-segmented :options="SOURCE_OPTIONS" :value="source" @change="switchSource($event.detail.value)" />
+      <p v-if="source === 'xlsx'" class="muted small">
         Tải file mẫu, điền câu hỏi (công thức gõ dạng $…$), rồi chọn file để xem trước. Hệ thống chỉ lưu khi bạn bấm "Lưu".
         Tối đa 500 câu / file, dung lượng dưới 1 MB.
       </p>
+      <div v-else class="muted small">
+        Soạn đề trong Word như bình thường: mỗi câu bắt đầu bằng <b>Câu 1.</b>, <b>Câu 2.</b>… (mức độ trong ngoặc: (NB), (TH),
+        (VD), (VDC)); phương án <b>A. B. C. D.</b> (đúng sai: <b>a) b) c) d)</b>); đáp án đúng <b>gạch chân / tô đỏ</b> hoặc dòng
+        <b>Đáp án: B</b>; lời giải sau dòng <b>Lời giải:</b>. Công thức Equation của Word và ảnh được giữ nguyên. File .docx tối đa 20 MB.
+      </div>
       <div class="grid-3">
         <hui-select label="Môn học" :options="subjectOptions" :value="subjectId" @change="subjectId = $event.detail.value" />
         <hui-select label="Lớp (không bắt buộc)" allow-clear :options="gradeOptions" :value="gradeId" @change="gradeId = $event.detail.value || null" />
@@ -13,9 +19,9 @@
       </div>
       <div class="row">
         <hui-button variant="outline" :loading="downloading" @hui-click="downloadTemplate">Tải file mẫu</hui-button>
-        <label class="file-btn">
-          <input type="file" accept=".xlsx" :disabled="!subjectId || previewing" @change="onFile" />
-          <span>{{ previewing ? 'Đang đọc…' : 'Chọn file .xlsx' }}</span>
+        <label class="file-btn" :class="{ disabled: !subjectId || previewing }">
+          <input type="file" :accept="source === 'xlsx' ? '.xlsx' : '.docx'" :disabled="!subjectId || previewing" @change="onFile" />
+          <span>{{ previewing ? progressText : `Chọn file .${source}` }}</span>
         </label>
         <span v-if="fileName" class="muted small">{{ fileName }}</span>
       </div>
@@ -29,7 +35,7 @@
           <table>
             <thead>
               <tr>
-                <th>Dòng</th>
+                <th>{{ source === 'xlsx' ? 'Dòng' : 'Câu' }}</th>
                 <th>Dạng</th>
                 <th>Nội dung</th>
                 <th>Ghi chú</th>
@@ -37,11 +43,11 @@
             </thead>
             <tbody>
               <tr v-for="it in preview.items" :key="it.row" :class="{ bad: it.errors.length }">
-                <td>{{ it.row }}</td>
+                <td class="nowrap">{{ it.label ?? it.row }}</td>
                 <td>{{ QUESTION_KIND_LABELS[it.kind] ?? '?' }}<br /><span class="muted small">{{ LEVEL_LABELS[it.level] }}</span></td>
                 <td>
                   <hui-markdown :value="it.content" />
-                  <ol v-if="it.options.length" type="A" class="small">
+                  <ol v-if="it.options.length" :type="it.kind === 'true_false' ? 'a' : 'A'" class="small">
                     <li v-for="(o, i) in it.options" :key="i" :class="{ ok: o.correct }">
                       <hui-markdown inline :value="o.content" /> <b v-if="o.correct">✓</b>
                     </li>
@@ -72,6 +78,12 @@ import { computed, ref, watch } from 'vue';
 import { teachingApi } from '../../api';
 import { useMasterData } from '../../utils/masterData';
 import { LEVEL_LABELS, QUESTION_KIND_LABELS } from '../../utils/teaching';
+import { checkFile, uploadFile } from '../../utils/upload';
+
+const SOURCE_OPTIONS = [
+  { value: 'xlsx', label: 'Excel (theo mẫu)' },
+  { value: 'docx', label: 'Word (đề soạn sẵn)' },
+];
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -91,6 +103,18 @@ const error = ref('');
 const previewing = ref(false);
 const saving = ref(false);
 const downloading = ref(false);
+const source = ref('xlsx');
+const uploadProgress = ref(0);
+const progressText = computed(() =>
+  source.value === 'docx' && uploadProgress.value < 100 ? `Đang tải lên ${uploadProgress.value}%` : 'Đang đọc…',
+);
+
+function switchSource(value) {
+  source.value = value;
+  preview.value = null;
+  fileName.value = '';
+  error.value = '';
+}
 
 const subjectOptions = computed(() => (master.value?.subjects ?? []).map((s) => ({ value: s.id, label: s.name })));
 const gradeOptions = computed(() => (master.value?.grades ?? []).map((g) => ({ value: g.id, label: g.name })));
@@ -114,11 +138,12 @@ watch(
 async function downloadTemplate() {
   downloading.value = true;
   try {
-    const blob = await teachingApi.importTemplate();
+    const word = source.value === 'docx';
+    const blob = await (word ? teachingApi.importWordTemplate() : teachingApi.importTemplate());
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'mau-cau-hoi.xlsx';
+    a.download = word ? 'mau-cau-hoi.docx' : 'mau-cau-hoi.xlsx';
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
@@ -133,14 +158,24 @@ async function onFile(e) {
   e.target.value = '';
   if (!file) return;
   error.value = '';
-  if (file.size > 1024 * 1024) {
-    error.value = 'File lớn hơn 1 MB. Hãy chia thành nhiều file.';
+  const word = source.value === 'docx';
+  const invalidFile = word ? checkFile(file, 'import') : file.size > 1024 * 1024 ? 'File lớn hơn 1 MB. Hãy chia thành nhiều file.' : '';
+  if (invalidFile) {
+    error.value = invalidFile;
     return;
   }
   fileName.value = file.name;
   previewing.value = true;
+  uploadProgress.value = 0;
   try {
-    preview.value = await teachingApi.importPreview(subjectId.value, file);
+    if (word) {
+      // File Word (có thể kèm nhiều ảnh) đi thẳng lên kho lưu file, API đọc rồi xóa
+      const saved = await uploadFile(file, 'import', { onProgress: (p) => (uploadProgress.value = p) });
+      uploadProgress.value = 100;
+      preview.value = await teachingApi.importWordPreview(subjectId.value, saved.id);
+    } else {
+      preview.value = await teachingApi.importPreview(subjectId.value, file);
+    }
   } catch (err) {
     error.value = err.message;
     preview.value = null;
@@ -194,6 +229,13 @@ function close() {
   color: #fff;
   cursor: pointer;
   font-size: 0.9rem;
+}
+.file-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.nowrap {
+  white-space: nowrap;
 }
 .file-btn input {
   position: absolute;

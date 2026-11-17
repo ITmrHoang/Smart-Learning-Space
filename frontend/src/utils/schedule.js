@@ -58,6 +58,7 @@ export const NOTIFICATION_KIND_LABELS = {
   booking_approved: 'Lịch học kèm được nhận',
   booking_declined: 'Lịch học kèm bị từ chối',
   booking_cancelled: 'Lịch học kèm bị hủy',
+  assistant_added: 'Mời làm trợ giảng',
 };
 export const NOTIFICATION_KIND_ICONS = {
   session_invite: 'calendar',
@@ -78,6 +79,7 @@ export const NOTIFICATION_KIND_ICONS = {
   booking_approved: 'success',
   booking_declined: 'error',
   booking_cancelled: 'error',
+  assistant_added: 'user',
 };
 
 /** 90 → "1 giờ 30 phút"; 45 → "45 phút"; 120 → "2 giờ". */

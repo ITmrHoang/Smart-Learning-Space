@@ -1,21 +1,29 @@
 //! Nghiệp vụ ngân hàng câu hỏi. Xem mô tả ở `mod.rs`.
 
+use std::collections::HashMap;
+
 use uuid::Uuid;
 use validator::Validate;
 
 use super::{
     dto::{
-        BulkCreateRequest, BulkCreateResponse, FolderInput, FolderResponse, ImportPreview, QuestionInput,
-        QuestionQuery, QuestionResponse, RegradeResponse, SaveQuestionResponse,
+        BulkCreateRequest, BulkCreateResponse, FolderInput, FolderResponse, ImportItem, ImportPreview, QuestionInput,
+        QuestionQuery, QuestionResponse, RegradeResponse, SaveQuestionResponse, WordImportRequest,
     },
     import,
     model::{QOption, QuestionBody, QuestionKind, QuestionRow, QuestionVersion},
     repository::{self as repo, QuestionFields, QuestionFilter},
+    word,
 };
 use crate::{
     context::AppContext,
     error::{AppError, AppResult},
-    modules::{catalog::service as catalog, exams::service as exams, teachers::service as teachers},
+    modules::{
+        catalog::service as catalog,
+        exams::service as exams,
+        files::{self, Purpose},
+        teachers::service as teachers,
+    },
     pagination::{Page, PageRequest},
     security::{Actor, Permission},
     slug::fold,
@@ -266,6 +274,11 @@ pub async fn bulk_create(ctx: &AppContext, actor: &Actor, req: BulkCreateRequest
 
 // ---------- Import Excel ----------
 
+async fn tag_lookup(ctx: &AppContext, actor: &Actor, subject_id: Uuid) -> AppResult<Vec<(String, Uuid)>> {
+    let tags = catalog::list_tags(ctx, Some(actor), subject_id).await?;
+    Ok(tags.into_iter().map(|t| (fold(&t.name), t.id)).collect())
+}
+
 pub async fn import_preview(
     ctx: &AppContext,
     actor: &Actor,
@@ -273,10 +286,74 @@ pub async fn import_preview(
     bytes: &[u8],
 ) -> AppResult<ImportPreview> {
     teachers::ensure_can_teach(ctx, actor, subject_id).await?;
-    let tags = catalog::list_tags(ctx, Some(actor), subject_id).await?;
-    let tag_lookup: Vec<(String, Uuid)> = tags.into_iter().map(|t| (fold(&t.name), t.id)).collect();
-    let mut items = import::parse_xlsx(bytes, &tag_lookup)?;
-    // Kiểm tra lại từng dòng bằng đúng luật lưu câu hỏi.
+    let items = import::parse_xlsx(bytes, &tag_lookup(ctx, actor, subject_id).await?)?;
+    Ok(check_items(subject_id, items))
+}
+
+/// Nhập từ Word: đọc file .docx vừa upload (rồi xóa), lưu ảnh trong đề thành ảnh nội dung.
+pub async fn import_word_preview(ctx: &AppContext, actor: &Actor, req: WordImportRequest) -> AppResult<ImportPreview> {
+    teachers::ensure_can_teach(ctx, actor, req.subject_id).await?;
+    let (_, bytes) = files::take_import(ctx, actor, req.file_id).await?;
+    let word::WordImport { items, images } = word::parse_docx(&bytes, &tag_lookup(ctx, actor, req.subject_id).await?)?;
+    let mut preview = check_items(req.subject_id, items);
+
+    // Ảnh: chỉ lưu ảnh của câu hợp lệ (câu lỗi không được lưu); trùng nội dung thì dùng lại file cũ.
+    let mut saved: HashMap<usize, Option<String>> = HashMap::new();
+    for item in &mut preview.items {
+        let used: Vec<usize> = (0..images.len())
+            .filter(|i| {
+                let link = format!("]({}{i})", word::IMAGE_SCHEME);
+                item.content.contains(&link)
+                    || item.explanation.contains(&link)
+                    || item.options.iter().any(|o| o.content.contains(&link))
+            })
+            .collect();
+        let mut failed = false;
+        for i in used {
+            let url = if !item.errors.is_empty() {
+                None
+            } else if let Some(url) = saved.get(&i) {
+                url.clone()
+            } else {
+                let img = &images[i];
+                let url = match img.content_type {
+                    Some(ct) => {
+                        match files::save_bytes(ctx, actor.id, Purpose::Content, &img.name, ct, &img.bytes).await {
+                            Ok(row) => Some(files::file_url(ctx, row.id, &row.purpose)),
+                            Err(e) => {
+                                tracing::warn!(error = %e.message, "không lưu được ảnh trong file Word");
+                                None
+                            }
+                        }
+                    }
+                    None => None,
+                };
+                saved.insert(i, url.clone());
+                url
+            };
+            failed |= url.is_none() && item.errors.is_empty();
+            let from = format!("![]({}{i})", word::IMAGE_SCHEME);
+            let to = url.map_or_else(|| "[ảnh]".to_string(), |u| format!("![]({u})"));
+            item.content = item.content.replace(&from, &to);
+            item.explanation = item.explanation.replace(&from, &to);
+            for o in &mut item.options {
+                o.content = o.content.replace(&from, &to);
+            }
+        }
+        if failed {
+            item.warnings
+                .push("Không lưu được ảnh trong câu này (chưa cấu hình nơi lưu file?) — ảnh bị bỏ qua.".into());
+        }
+    }
+    Ok(preview)
+}
+
+pub fn import_word_template() -> AppResult<Vec<u8>> {
+    word::template_docx()
+}
+
+/// Kiểm tra lại từng câu đọc được bằng đúng luật lưu câu hỏi.
+fn check_items(subject_id: Uuid, mut items: Vec<ImportItem>) -> ImportPreview {
     for item in &mut items {
         if !item.errors.is_empty() {
             continue;
@@ -301,7 +378,7 @@ pub async fn import_preview(
         }
     }
     let valid_count = items.iter().filter(|i| i.errors.is_empty()).count();
-    Ok(ImportPreview { items, valid_count })
+    ImportPreview { items, valid_count }
 }
 
 pub fn import_template() -> AppResult<Vec<u8>> {

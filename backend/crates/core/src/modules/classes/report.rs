@@ -11,7 +11,7 @@ use rust_xlsxwriter::{Format, Workbook};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::{dto::ProgressSummary, path, repository as repo, service::load_own};
+use super::{dto::ProgressSummary, path, repository as repo, service::load_staff_class};
 use crate::{
     context::AppContext,
     error::{AppError, AppResult},
@@ -144,7 +144,7 @@ pub fn flags_for(
 const SUBMITTED: &str = "a.class_id = $1 AND a.status = 'submitted' AND NOT a.is_preview";
 
 pub async fn class_report(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult<ClassReport> {
-    let class = load_own(ctx, actor, class_id).await?;
+    let class = load_staff_class(ctx, actor, class_id).await?;
     let progress = path::class_progress(ctx, actor, class_id).await?;
     let members = repo::members(&ctx.db, class_id, Some("active")).await?;
     let joined: HashMap<Uuid, DateTime<Utc>> = members.iter().map(|m| (m.user_id, m.created_at)).collect();

@@ -6,6 +6,19 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "sls-frontend-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "preview", "--", "--port", "4173", "--strictPort"],
+      "port": 4173
+    },
+    {
+      "name": "sls-api",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd backend && cargo run -p sls-api"],
+      "port": 8080,
+      "url": "http://127.0.0.1:8080"
     }
   ]
 }

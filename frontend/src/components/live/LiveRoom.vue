@@ -9,7 +9,7 @@
         <hui-tag v-if="state !== 'connected'" size="sm" :color="state === 'disconnected' ? 'danger' : 'warning'">{{ STATE_LABELS[state] }}</hui-tag>
         <span class="small">{{ people.length }} người</span>
         <hui-button v-if="!canPlayAudio" size="sm" @hui-click="startAudio">🔊 Bật âm thanh</hui-button>
-        <hui-button v-if="meTeacher" size="sm" variant="danger" :loading="ending" @hui-click="endClass">Kết thúc buổi</hui-button>
+        <hui-button v-if="meOwner" size="sm" variant="danger" :loading="ending" @hui-click="endClass">Kết thúc buổi</hui-button>
         <hui-button v-else size="sm" variant="outline" @hui-click="leave">Rời phòng</hui-button>
       </div>
     </header>
@@ -108,6 +108,7 @@
             <span>
               {{ x.name }}
               <hui-tag v-if="x.role === 'teacher'" size="sm" color="primary">Giáo viên</hui-tag>
+              <hui-tag v-else-if="x.role === 'assistant'" size="sm" color="info">Trợ giảng</hui-tag>
               <hui-tag v-else-if="x.role === 'guest'" size="sm" color="secondary">Khách</hui-tag>
               <hui-tag v-if="writers.includes(x.identity)" size="sm" color="warning">Đang lên bảng</hui-tag>
               <span v-if="x.isLocal" class="muted small">(bạn)</span>
@@ -121,7 +122,7 @@
             </span>
           </div>
 
-          <div v-if="meTeacher && info.session.access === 'public_link'" class="stack guest-link">
+          <div v-if="meOwner && info.session.access === 'public_link'" class="stack guest-link">
             <hui-button size="sm" variant="outline" @hui-click="makeGuestLink">{{ guestLink ? 'Đổi link khách' : 'Tạo link cho khách' }}</hui-button>
             <template v-if="guestLink">
               <code class="small">{{ guestLink }}</code>
@@ -134,7 +135,7 @@
         <section v-else-if="tab === 'chat'" class="chat">
           <div ref="chatBox" class="messages scroll">
             <p v-if="!chat.length" class="muted small">Chưa có tin nhắn.</p>
-            <div v-for="m in chat" :key="m.id" class="message" :class="{ mine: m.from === info.identity, teacher: m.role === 'teacher' }">
+            <div v-for="m in chat" :key="m.id" class="message" :class="{ mine: m.from === info.identity, teacher: m.role === 'teacher' || m.role === 'assistant' }">
               <b class="small">{{ m.name }}</b>
               <span>{{ m.text }}</span>
             </div>
@@ -217,7 +218,10 @@ const emit = defineEmits(['left']);
 
 const live = useLiveRoom();
 const { version, state, canPlayAudio } = live;
-const meTeacher = props.info.role === 'teacher';
+/** Giáo viên chủ buổi */
+const meOwner = props.info.role === 'teacher';
+/** Người điều khiển phòng: chủ buổi hoặc trợ giảng của lớp (trừ kết thúc buổi, link khách — chỉ chủ buổi) */
+const meTeacher = meOwner || props.info.role === 'assistant';
 const board = ref(null);
 const chatBox = ref(null);
 const error = ref('');
@@ -377,7 +381,8 @@ live.onMessage((msg, from) => {
 
 /** Người vào sau nhận trạng thái bảng / bình chọn / chat từ giáo viên. */
 live.onText(BOARD_SNAPSHOT_TOPIC, (text, info) => {
-  if (meTeacher || !isTeacher(participantOf(info.identity))) return;
+  // Trợ giảng vào sau cũng nhận trạng thái từ giáo viên chủ buổi
+  if (meOwner || !isTeacher(participantOf(info.identity))) return;
   try {
     const s = JSON.parse(text);
     board.value?.loadSnapshot(s.board);
@@ -396,6 +401,8 @@ live.onText(BOARD_SNAPSHOT_TOPIC, (text, info) => {
 
 function sendState(to) {
   if (!meTeacher || !board.value) return;
+  // Có giáo viên chủ buổi trong phòng thì chỉ giáo viên gửi (tránh hai bản trạng thái lệch nhau)
+  if (!meOwner && teacher.value) return;
   const s = {
     board: board.value.getSnapshot(),
     writers: writers.value,

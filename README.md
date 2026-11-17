@@ -44,6 +44,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **lettre** (rustls) | Worker gửi email qua SMTP có mã hóa TLS — STARTTLS hoặc TLS, đặt bằng `SMTP_TLS` (OTP, link đặt lại mật khẩu, kết quả duyệt giáo viên, lời mời / nhắc lịch buổi học). Lời mời kèm file lịch `.ics` (chuẩn RFC 5545, tự sinh) để học sinh thêm vào Google Calendar / Outlook / điện thoại; dời / hủy buổi thì lịch trong máy tự cập nhật |
 | **deunicode** | Bỏ dấu tiếng Việt khi tạo slug / gợi ý username (`Trần Thị` → `tran.thi`) |
 | **calamine** / **rust_xlsxwriter** | Đọc file Excel câu hỏi giáo viên tải lên / tạo file Excel mẫu để giáo viên điền, xuất bảng điểm lớp học |
+| **zip** + **quick-xml** | Đọc file Word (.docx) đề câu hỏi giáo viên tải lên: tách "Câu 1." / phương án A–D / đáp án gạch chân, tô đỏ / lời giải, đổi công thức Equation của Word (OMML) sang LaTeX, lấy ảnh trong đề; tạo file Word mẫu |
 | **thiserror** / **anyhow** | Khai báo lỗi có kiểu trong thư viện / gom lỗi gọn khi khởi động chương trình |
 | **tracing** / **tracing-subscriber** | Ghi log có cấu trúc (kèm `request_id`), đổi sang JSON khi chạy production (`LOG_FORMAT=json`) |
 | **dotenvy** | Nạp cấu hình từ file `backend/.env` khi dev |
@@ -60,8 +61,10 @@ Backend là một *modular monolith* gồm 3 crate:
 | `hui-markdown` + `hui-math` (trong H-UI) | Hiển thị nội dung bài học / câu hỏi: Markdown + công thức LaTeX vẽ bằng MathML gốc của trình duyệt (không cần KaTeX / MathJax) |
 | `hui-timetable` (trong H-UI) | Lịch tuần / ngày có khung giờ cho Lịch dạy / Lịch học: buổi chồng giờ chia cột, vạch giờ hiện tại, kéo chọn khung giờ trống để tạo buổi học |
 | `hui-flashcard` (trong H-UI) | Thẻ ghi nhớ lật được (Markdown + công thức), 4 nút tự chấm Quên / Khó / Được / Dễ cho ôn tập lặp lại ngắt quãng |
-| `hui-whiteboard` (trong H-UI) | Bảng vẽ cho dạy trực tuyến (bút, hình, chữ, tẩy, nhiều trang, hoàn tác), phát thao tác để đồng bộ giữa các máy trong phòng |
+| `hui-whiteboard` (trong H-UI) | Bảng vẽ cho dạy trực tuyến (bút, hình, chữ, tẩy, nhiều trang, hoàn tác), phát thao tác để đồng bộ giữa các máy trong phòng, công cụ ƒ vẽ đồ thị hàm số lên bảng |
+| `hui-plot` (trong H-UI) | Đồ thị hàm số từ công thức gõ tự nhiên (`y = 2x + 1`, miền nghiệm, điểm, tham số có thanh trượt), kéo / phóng to; trong nội dung Markdown dùng khối ` ```plot ` |
 | **livekit-client** 2.23 | Kết nối trình duyệt với phòng LiveKit: video, âm thanh, chia sẻ màn hình, kênh dữ liệu (giơ tay, chat, bình chọn, bảng) |
+| **PWA** (manifest + service worker tự viết, không thư viện) | Cài ứng dụng lên màn hình chính điện thoại / máy tính (nút "Cài ứng dụng"), mở cửa sổ riêng; mất mạng thì hiện trang "Bạn đang ngoại tuyến". Service worker không lưu dữ liệu / API (chỉ trang ngoại tuyến + icon) nên không bao giờ giữ bản cũ của ứng dụng. Cần HTTPS khi chạy thật |
 | **Vitest** + **jsdom** | Unit test cho API client, kiểm tra quyền, tiện ích SSO… |
 
 ### Hạ tầng (Docker, file `deploy/docker-compose.dev.yml`)
@@ -170,6 +173,7 @@ Ví dụ hai máy cùng mạng LAN / VPN, máy A có IP `10.0.0.1`:
 - Qua Internet: nối các máy bằng WireGuard / Tailscale rồi dùng IP VPN như IP LAN. **Không** mở Postgres / Valkey / RabbitMQ ra IP public.
 - Lưu file: thêm `garage` vào `COMPOSE_PROFILES`, điền `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` trong `deploy/.env`, sau lần `up` đầu tiên chạy `sh deploy/garage/init.sh prod`. Caddy chuyển `/files/*` vào Garage. **Bắt buộc sao lưu** volume `garagedata` (một node chỉ có một bản dữ liệu).
 - Phòng học trực tuyến: thêm `livekit` vào `COMPOSE_PROFILES`, điền `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_KEYS` trong `deploy/.env`; máy chạy LiveKit cần IP public, mở **7881/tcp** và **7882/udp**. Trình duyệt vào qua `wss://<tên miền>/rtc` (Caddy chuyển vào LiveKit). Chưa cấu hình thì buổi học chỉ dùng link họp ngoài.
+- Cài ứng dụng (PWA): trình duyệt chỉ cho cài khi trang chạy qua **HTTPS** (Caddy tự lấy chứng chỉ khi `SITE_ADDRESS` là tên miền). Khi dev, service worker chỉ bật ở bản build: `npm --prefix frontend run build` rồi `npm --prefix frontend run preview`.
 - Image backend build từ [`backend/Dockerfile`](backend/Dockerfile) (một lần build ra `sls-api` và `sls-worker`, image distroless chạy user không phải root). Migration tự chạy khi api khởi động.
 
 ## Test

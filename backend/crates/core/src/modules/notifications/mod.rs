@@ -46,6 +46,8 @@ pub enum NotificationKind {
     BookingDeclined,
     /// Học kèm 1-1: một bên hủy lịch.
     BookingCancelled,
+    /// Được mời làm trợ giảng một lớp học.
+    AssistantAdded,
 }
 
 impl NotificationKind {
@@ -69,6 +71,7 @@ impl NotificationKind {
             Self::BookingApproved => "booking_approved",
             Self::BookingDeclined => "booking_declined",
             Self::BookingCancelled => "booking_cancelled",
+            Self::AssistantAdded => "assistant_added",
         }
     }
 }

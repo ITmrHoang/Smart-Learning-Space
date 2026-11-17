@@ -3,7 +3,7 @@
     <div class="page-header">
       <h1>Ngân hàng câu hỏi</h1>
       <div class="row">
-        <hui-button variant="outline" @hui-click="importOpen = true">Nhập từ Excel</hui-button>
+        <hui-button variant="outline" @hui-click="importOpen = true">Nhập từ Excel / Word</hui-button>
         <hui-button @hui-click="openEditor(null)">Thêm câu hỏi</hui-button>
       </div>
     </div>

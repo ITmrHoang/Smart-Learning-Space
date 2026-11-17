@@ -39,7 +39,7 @@ export function decodeMessage(payload) {
   }
 }
 
-/** Vai trò trong phòng từ metadata do server ký: teacher | student | guest. */
+/** Vai trò trong phòng từ metadata do server ký: teacher | assistant (trợ giảng của lớp) | student | guest. */
 export function roleOf(participant) {
   try {
     return JSON.parse(participant?.metadata || '{}').role || 'student';
@@ -48,7 +48,8 @@ export function roleOf(participant) {
   }
 }
 
-export const isTeacher = (participant) => roleOf(participant) === 'teacher';
+/** Người điều khiển phòng: giáo viên chủ buổi hoặc trợ giảng (tin các lệnh họ gửi qua kênh dữ liệu). */
+export const isTeacher = (participant) => ['teacher', 'assistant'].includes(roleOf(participant));
 
 export const HAND_REASONS = { solve: 'Em giải', ask: 'Em hỏi' };
 

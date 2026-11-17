@@ -8,11 +8,15 @@
 //! - `content`: ai có link cũng xem được (ID ngẫu nhiên 122 bit, không đoán được) — để `<img>` trong
 //!   Markdown hiện được mà không cần đăng nhập.
 //! - `homework`: bài làm của học sinh, link phải có chữ ký `?exp=&sig=` do API cấp cho người có quyền xem.
+//! - `import`: file Word (.docx) đề câu hỏi — chỉ để API đọc một lần rồi xóa (`take_import`).
+//!
+//! Ảnh API tự lưu (lấy ra từ file Word) đi qua `save_bytes`: trùng nội dung (SHA-256) thì dùng lại file cũ.
 
 use std::{collections::HashMap, time::Duration};
 
 use chrono::{Datelike, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -39,6 +43,8 @@ const UPLOADS_PER_HOUR: u32 = 200;
 pub enum Purpose {
     Content,
     Homework,
+    /// File Word đề câu hỏi: API đọc một lần rồi xóa.
+    Import,
 }
 
 impl Purpose {
@@ -46,22 +52,48 @@ impl Purpose {
         match self {
             Self::Content => "content",
             Self::Homework => "homework",
+            Self::Import => "import",
         }
     }
 
-    fn max_bytes(self) -> i64 {
+    fn parse(value: &str) -> Self {
+        match value {
+            "homework" => Self::Homework,
+            "import" => Self::Import,
+            _ => Self::Content,
+        }
+    }
+
+    pub fn max_bytes(self) -> i64 {
         match self {
             Self::Content => CONTENT_MAX_BYTES,
             Self::Homework => HOMEWORK_MAX_BYTES,
+            Self::Import => IMPORT_MAX_BYTES,
         }
     }
 
     fn allows(self, content_type: &str) -> bool {
-        IMAGE_TYPES.contains(&content_type) || (self == Self::Homework && content_type == "application/pdf")
+        match self {
+            Self::Content => IMAGE_TYPES.contains(&content_type),
+            Self::Homework => IMAGE_TYPES.contains(&content_type) || content_type == "application/pdf",
+            Self::Import => content_type == DOCX,
+        }
+    }
+
+    fn type_hint(self) -> &'static str {
+        match self {
+            Self::Content => "Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.",
+            Self::Homework => "Chỉ nhận ảnh (PNG, JPG, GIF, WebP) hoặc PDF.",
+            Self::Import => {
+                "Chỉ nhận file Word .docx (Word 2007 trở lên; file .doc cũ hãy mở bằng Word rồi lưu lại dạng .docx)."
+            }
+        }
     }
 }
 
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+pub const DOCX: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+pub const IMPORT_MAX_BYTES: i64 = 20 * 1024 * 1024;
 
 /// Kiểm tra vài byte đầu khớp định dạng khai báo (chống đổi đuôi file).
 pub fn magic_matches(content_type: &str, head: &[u8]) -> bool {
@@ -71,6 +103,8 @@ pub fn magic_matches(content_type: &str, head: &[u8]) -> bool {
         "image/gif" => head.starts_with(b"GIF8"),
         "image/webp" => head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP",
         "application/pdf" => head.starts_with(b"%PDF"),
+        // .docx là file zip
+        DOCX => head.starts_with(b"PK\x03\x04"),
         _ => false,
     }
 }
@@ -152,6 +186,7 @@ fn object_key(purpose: Purpose, id: Uuid, name: &str, content_type: &str) -> Str
         "image/jpeg" => "jpg",
         "image/gif" => "gif",
         "image/webp" => "webp",
+        DOCX => "docx",
         _ => "pdf",
     };
     let now = Utc::now();
@@ -197,14 +232,7 @@ pub async fn create_upload(ctx: &AppContext, actor: &Actor, input: UploadInput) 
     input.validate()?;
     let ct = input.content_type.trim().to_ascii_lowercase();
     if !input.purpose.allows(&ct) {
-        return Err(AppError::field(
-            "contentType",
-            if input.purpose == Purpose::Content {
-                "Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP."
-            } else {
-                "Chỉ nhận ảnh (PNG, JPG, GIF, WebP) hoặc PDF."
-            },
-        ));
+        return Err(AppError::field("contentType", input.purpose.type_hint()));
     }
     let max = input.purpose.max_bytes();
     if input.size > max {
@@ -253,12 +281,12 @@ pub async fn complete(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<Fi
         .head(&row.object_key)
         .await?
         .ok_or_else(|| AppError::conflict("FILE_NOT_UPLOADED", "Chưa nhận được file. Hãy thử upload lại."))?;
-    let purpose = if row.purpose == "homework" { Purpose::Homework } else { Purpose::Content };
+    let purpose = Purpose::parse(&row.purpose);
     let head = ctx.storage.read_prefix(&row.object_key, 16).await?;
     let problem = if info.size <= 0 || info.size > purpose.max_bytes() {
         Some(format!("File phải nhỏ hơn {} MB.", purpose.max_bytes() / 1024 / 1024))
     } else if !magic_matches(&row.content_type, &head) {
-        Some("Nội dung file không đúng định dạng ảnh / PDF đã chọn.".to_string())
+        Some("Nội dung file không đúng định dạng đã chọn.".to_string())
     } else {
         None
     };
@@ -331,6 +359,69 @@ pub async fn views(ctx: &AppContext, ids: &[Uuid]) -> AppResult<HashMap<Uuid, Fi
     Ok(rows.iter().map(|r| (r.id, view(ctx, r))).collect())
 }
 
+/// API tự lưu một file (ảnh lấy ra từ file Word…) thành file `ready` của `owner_id`.
+/// Cùng người, cùng mục đích, cùng nội dung (SHA-256) → dùng lại file đã có, không lưu thêm bản mới.
+pub async fn save_bytes(
+    ctx: &AppContext,
+    owner_id: Uuid,
+    purpose: Purpose,
+    name: &str,
+    content_type: &str,
+    bytes: &[u8],
+) -> AppResult<FileRow> {
+    if !purpose.allows(content_type) {
+        return Err(AppError::field("file", purpose.type_hint()));
+    }
+    if bytes.is_empty() || bytes.len() as i64 > purpose.max_bytes() {
+        return Err(AppError::field("file", format!("File tối đa {} MB.", purpose.max_bytes() / 1024 / 1024)));
+    }
+    if !magic_matches(content_type, &bytes[..bytes.len().min(16)]) {
+        return Err(AppError::field("file", "Nội dung file không đúng định dạng."));
+    }
+    let sha = hex::encode(Sha256::digest(bytes));
+    let existing = sqlx::query_as::<_, FileRow>(crate::sql!(
+        "SELECT {COLUMNS} FROM files
+         WHERE owner_id = $1 AND purpose = $2 AND sha256 = $3 AND status = 'ready' LIMIT 1"
+    ))
+    .bind(owner_id)
+    .bind(purpose.as_str())
+    .bind(&sha)
+    .fetch_optional(&ctx.db)
+    .await?;
+    if let Some(row) = existing {
+        return Ok(row);
+    }
+    let id = random_id();
+    let key = object_key(purpose, id, name, content_type);
+    ctx.storage.put(&key, bytes, content_type).await?;
+    Ok(sqlx::query_as::<_, FileRow>(crate::sql!(
+        "INSERT INTO files (id, owner_id, purpose, object_key, name, content_type, size_bytes, status, ready_at, sha256)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ready', now(), $8) RETURNING {COLUMNS}"
+    ))
+    .bind(id)
+    .bind(owner_id)
+    .bind(purpose.as_str())
+    .bind(&key)
+    .bind(name)
+    .bind(content_type)
+    .bind(bytes.len() as i64)
+    .bind(&sha)
+    .fetch_one(&ctx.db)
+    .await?)
+}
+
+/// Đọc file Word người dùng vừa upload để nhập câu hỏi, rồi xóa luôn (file tạm, không giữ lại).
+pub async fn take_import(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(String, Vec<u8>)> {
+    let row = find(ctx, id)
+        .await?
+        .filter(|r| r.owner_id == actor.id && r.purpose == Purpose::Import.as_str() && r.status == "ready")
+        .ok_or_else(not_found)?;
+    let bytes = ctx.storage.get(&row.object_key, IMPORT_MAX_BYTES as usize).await;
+    ctx.storage.delete(&row.object_key).await?;
+    sqlx::query("DELETE FROM files WHERE id = $1").bind(id).execute(&ctx.db).await?;
+    Ok((row.name, bytes?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +442,10 @@ mod tests {
         assert!(!Purpose::Content.allows("application/pdf"));
         assert!(Purpose::Homework.allows("application/pdf"));
         assert!(!Purpose::Homework.allows("image/svg+xml"));
+        assert!(Purpose::Import.allows(DOCX));
+        assert!(!Purpose::Import.allows("image/png"));
+        assert!(magic_matches(DOCX, b"PK\x03\x04\x14\x00"));
+        assert!(!magic_matches(DOCX, b"\xD0\xCF\x11\xE0")); // .doc cũ (OLE)
     }
 
     #[test]

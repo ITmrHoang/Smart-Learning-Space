@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { altText, checkFile, formatBytes, imageMarkdown } from './upload';
+import { DOCX, altText, checkFile, fileType, formatBytes, imageMarkdown } from './upload';
 import { formatWindows, groupSlotsByDay } from './schedule';
 
 describe('upload', () => {
@@ -12,6 +12,12 @@ describe('upload', () => {
     expect(checkFile({ type: 'image/png', size: 6 * 1024 * 1024 }, 'homework')).toBe('');
     expect(checkFile({ type: 'image/png', size: 0 }, 'homework')).toBe('File rỗng.');
     expect(checkFile({ type: 'image/svg+xml', size: 10 }, 'homework')).toMatch(/PDF/);
+    // File Word: máy không cài Office báo type rỗng → đoán theo đuôi
+    expect(checkFile({ type: DOCX, name: 'de.docx', size: 10 }, 'import')).toBe('');
+    expect(checkFile({ type: '', name: 'Đề 15 phút.DOCX', size: 10 }, 'import')).toBe('');
+    expect(fileType({ type: '', name: 'de.docx' })).toBe(DOCX);
+    expect(checkFile({ type: 'application/msword', name: 'de.doc', size: 10 }, 'import')).toMatch(/\.docx/);
+    expect(checkFile({ type: DOCX, name: 'de.docx', size: 21 * 1024 * 1024 }, 'import')).toBe('File tối đa 20 MB.');
   });
 
   it('chữ thay thế + Markdown ảnh, định dạng dung lượng', () => {

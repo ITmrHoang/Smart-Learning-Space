@@ -28,6 +28,8 @@ pub struct ClassFields<'a> {
 pub enum ClassScope {
     /// Lớp học của giáo viên.
     Owner(Uuid, bool),
+    /// Lớp học giáo viên làm trợ giảng (chưa lưu trữ).
+    Assistant(Uuid),
     /// Danh sách công khai.
     Public,
 }
@@ -44,6 +46,14 @@ fn push_filter(qb: &mut QueryBuilder<Postgres>, f: &ClassFilter<'_>) {
         ClassScope::Owner(owner, archived) => {
             qb.push(" WHERE c.owner_id = ").push_bind(owner);
             qb.push(if archived { " AND c.archived_at IS NOT NULL" } else { " AND c.archived_at IS NULL" });
+        }
+        ClassScope::Assistant(user) => {
+            qb.push(
+                " WHERE c.archived_at IS NULL AND EXISTS (SELECT 1 FROM class_members am WHERE am.class_id = c.id \
+                 AND am.role = 'assistant' AND am.status = 'active' AND am.user_id = ",
+            )
+            .push_bind(user)
+            .push(")");
         }
         ClassScope::Public => {
             qb.push(" WHERE c.visibility = 'public' AND c.archived_at IS NULL");

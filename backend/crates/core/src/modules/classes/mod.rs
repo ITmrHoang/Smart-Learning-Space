@@ -8,6 +8,7 @@
 //! - Lộ trình: `path_steps` là bản nháp; xuất bản lưu ảnh chụp JSON vào `path_versions`; học sinh đọc phiên
 //!   bản mới nhất. Tiến độ gắn với ID bước nên đổi thứ tự / sửa không mất tiến độ (xem `path.rs`).
 
+pub mod assistants;
 pub mod dto;
 pub mod homework;
 pub mod model;

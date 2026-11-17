@@ -304,6 +304,61 @@ Migration `20261113000003_live.sql` (`sessions` thêm `room` external | live, m�
 
 **Dữ liệu thử thêm trong DB dev:** buổi "Chữa bài hệ phương trình (trực tuyến)" (phòng của hệ thống, mở cho khách) của lớp "Toán 9", có ảnh bảng + 1 quiz đã lưu.
 
+## Đợt 7 — Đồ thị hàm số, nhập đề Word, trợ giảng, PWA (bắt đầu 2026-11-18)
+
+> Yêu cầu: "làm tiếp tính năng" (sau khi dọn branch / worktree). Lấy từ danh sách "Để sau" của đợt 5–6: WB2 phần đồ thị (`hui-plot`), import Word, trợ giảng (D12), PWA (D10).
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M30** | H-UI thêm `hui-plot`: đồ thị hàm số từ công thức gõ tự nhiên (nhân ngầm `2x`, dấu phẩy thập phân, `^ ² √ \|x\|`, sin / cos / tan / cot, ln, log…), nhiều đồ thị một hệ trục, miền nghiệm `y > …`, đường `x = c`, điểm `A(1; 2)`, tham số tự sinh thanh trượt, khung trục `x: -2 .. 5`; hai trục cùng đơn vị (tự tính trục y theo khung); kéo / phóng to. Tự phân tích biểu thức, **không dùng eval**. `hui-markdown`: khối ` ```plot ` → `<hui-plot>`. `hui-whiteboard`: công cụ **ƒ** (kéo khung → gõ công thức → Ctrl + Enter; chạm lại để sửa), thao tác mới `update`. App: nút "Chèn đồ thị" ở ô soạn Markdown | ✅ Xong (2026-11-18) |
+| **M31** | Nhập câu hỏi từ **Word (.docx)** soạn theo cách giáo viên vẫn gõ: "Câu 1 (NB)." (cả số câu đánh tự động của Word), phương án A. B. C. D. (chung một dòng cũng được), đúng sai a) b) c) d), đáp án = gạch chân / tô đỏ / tô nền / `*B.` / dòng "Đáp án: …" / "Chọn B" trong lời giải, "Lời giải:", tiêu đề "PHẦN I / II / III" để nhận loại câu; công thức Equation (OMML) → LaTeX; ảnh trong đề → ảnh nội dung trên Garage (trùng nội dung thì dùng lại); MathType / WMF chưa đọc được → cảnh báo rõ. Dùng chung bảng xem trước + lưu hàng loạt với Excel; file Word mẫu tải về được | ✅ Xong (2026-11-18) |
+| **M32** | **Trợ giảng** (D12): chủ lớp mời tài khoản giáo viên (username / email, tối đa 5) làm trợ giảng. Trợ giảng: xem lớp, học sinh, duyệt / từ chối ghi danh, tiến độ, báo cáo, chấm bài tập, trả lời / ghim / ẩn hỏi đáp (hiện nhãn giáo viên, nhận thông báo câu hỏi mới + bài nộp), vào phòng học trực tuyến của lớp với quyền điều khiển như giáo viên. Không được: sửa lớp / lộ trình, đổi mã mời, thêm / mời ra học sinh, lưu trữ / sao chép lớp, kết thúc buổi live, tạo link khách | ✅ Xong (2026-11-18) |
+| **M33** | **PWA** (D10): `manifest.json` + icon (thường, maskable, Apple), service worker tự viết: mất mạng → trang "Bạn đang ngoại tuyến" (tự mở lại khi có mạng); nút "Cài ứng dụng" ở thanh trên khi trình duyệt cho cài | ✅ Xong (2026-11-18) |
+
+### Kết quả đợt 7 (2026-11-18)
+
+Migration `20261118000001_word_import.sql` (`files.purpose` thêm `import`, cột `sha256` + index để dùng lại ảnh trùng nội dung). Bảng `class_members` đã có sẵn vai `assistant` từ M8 — không cần đổi schema cho trợ giảng.
+
+| Phần | Mã |
+|---|---|
+| H-UI | `src/components/hui-plot/{expr.js, plot-core.js, hui-plot.js, hui-plot.css, hui-plot.stories.js}`; `hui-markdown/markdown.js` (khối `plot`); `hui-whiteboard` (công cụ `plot`, `addPlot()`, thao tác `update`); nhóm CDN `learning`; changeset `plot.md` |
+| Backend | `questions/word.rs` (đọc .docx: cây XML bằng `quick-xml`, đánh số tự động, OMML → LaTeX, nhận dạng câu / phương án / đáp án; ghi file .docx mẫu + dữ liệu test), `questions/service.rs` (`import_word_preview`, lưu ảnh); `files` (`Purpose::Import`, `save_bytes` chống trùng SHA-256, `take_import` đọc rồi xóa); `storage.rs` (`put` ký SHA-256 nội dung, `get` có giới hạn dung lượng); `classes/assistants.rs`, `classes::service::{load_staff, StaffRole, is_assistant}`; `sessions::{LiveRole, live_staff}`; `live` cho trợ giảng điều khiển phòng |
+| Frontend | `ImportQuestionsModal.vue` (Excel / Word), `MarkdownEditor.vue` (Chèn đồ thị), `ClassesPage.vue` (tab Trợ giảng), `ClassManagePage.vue` (khu Trợ giảng, ẩn việc của chủ lớp), `LiveRoom.vue` (vai `assistant`), `utils/pwa.js`, `public/{manifest.json, sw.js, offline.html, icons/}` |
+
+| API | Mô tả |
+|---|---|
+| `GET /api/teaching/questions/import/word-template` | File Word mẫu (4 câu đủ 4 loại, công thức Word, gạch chân / tô đỏ đáp án) |
+| `POST /api/files` (`purpose: "import"`) → `PUT` lên Garage → `POST /api/teaching/questions/import/word/preview` (`{subjectId, fileId}`) | File .docx tới 20 MB đi thẳng lên Garage (không qua giới hạn 1 MB của API); api đọc một lần rồi xóa, trả bảng xem trước như Excel (thêm `label` "II · Câu 3") |
+| `GET\|POST /api/teaching/classes/{id}/assistants` · `DELETE …/assistants/{userId}` | Danh sách / mời / bỏ trợ giảng (trợ giảng tự rời lớp được) |
+| `GET /api/teaching/classes?assisting=true` | Lớp mình làm trợ giảng (`myRole`, `ownerName`, không có mã mời) |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Đồ thị không dùng thư viện | Tự viết bộ phân tích biểu thức (Pratt parser, ~250 dòng) thay vì `eval` / math.js: an toàn với nội dung học sinh nhập, hiểu cách viết của Việt Nam (dấu phẩy thập phân, `tg`, `cotg`, nhân ngầm). Lõi vẽ `drawPlot` dùng chung cho `hui-plot` và bảng vẽ. Phương trình ẩn (`x² + y² = 4`) chưa hỗ trợ — báo lỗi rõ ở dòng đó |
+| Đồ thị trên bảng | Lưu dạng phần tử `{ type: 'plot', khung, value }` (công thức, không phải ảnh) → đồng bộ nhẹ, sửa được, vẽ lại sắc nét ở mọi cỡ màn hình; đi qua kênh dữ liệu cũ của phòng live, không đổi giao thức |
+| Word: nhận dạng thay vì bắt theo mẫu cứng | Giáo viên đã có sẵn ngân hàng đề Word; quy tắc nhận dạng (số câu, nhãn phương án liên tiếp từ đầu dòng, đáp án gạch chân / tô đỏ, nhãn "Đáp án" / "Lời giải" / "PHẦN") khớp cách soạn phổ biến. Nhãn phương án phải liên tiếp A → B → C và bắt đầu đầu dòng nên "Cho điểm A. …" trong đề không bị cắt nhầm |
+| Word: file lớn | .docx thường có ảnh nên tới hàng chục MB → upload thẳng Garage bằng presigned URL (mục đích `import`, tối đa 20 MB, kiểm tra chữ ký zip), không nới giới hạn body 1 MB của API. Caddy `/files` nâng 20MB → 25MB (20 MiB của api lớn hơn 20 MB của Caddy) |
+| Word: MathType | Công thức MathType là đối tượng OLE + ảnh WMF — không chuyển được sang LaTeX trên server mà không có MathType. Để chỗ trống `[công thức MathType]` + cảnh báo hướng dẫn "MathType → Convert Equations" sang Equation của Word |
+| Trợ giảng | Dùng vai `assistant` sẵn có trong `class_members` (một người một vai trong lớp). Mọi chỗ "chủ lớp" chia làm hai: `load_own` (sửa) và `load_staff` (xem / chấm / hỏi đáp). Lớp đã lưu trữ: chỉ chủ lớp vào được. Phòng live: trợ giảng nhận vai `assistant` trong metadata do server ký, máy học sinh tin lệnh của trợ giảng như giáo viên; trợ giảng không đổi quyền / mời ra giáo viên chủ buổi được |
+| PWA | Không dùng Workbox / `vite-plugin-pwa`: service worker chỉ lo trang ngoại tuyến + icon, **không** lưu mã ứng dụng hay dữ liệu API (dữ liệu riêng tư, link file có chữ ký) → không có lỗi "kẹt bản cũ", cập nhật ứng dụng như web thường (Caddy đã cache lâu `/assets/*` có hash). Chỉ đăng ký ở bản build |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 76 / 76 đạt (thêm `word`: file mẫu đọc lại đủ 4 câu, OMML → LaTeX (mũ, căn bậc n, hệ phương trình, ngoặc, hàm, giới hạn, tổng, vector, góc, chữ tiếng Việt), nhiều kiểu đánh dấu đáp án, phương án chung dòng tiêu đề, "Chọn B" trong lời giải, chỉ số trên gõ bằng định dạng, đánh số tự động, ảnh PNG / WMF, MathType, file hỏng; Excel bỏ nhãn "a)" của ý đúng sai; loại file `import`) + test Garage thật có thêm `put` / `get` |
+| Backend integration test | 99 / 99 đạt — thêm 3: nhập Word (file mẫu qua kho, file tạm bị xóa, ảnh lưu thành ảnh nội dung + dùng lại khi xem trước lần hai, câu lỗi không lưu ảnh, file người khác 404, `.doc` cũ bị từ chối); trợ giảng (chỉ giáo viên, chỉ chủ lớp mời, danh sách lớp trợ giảng, được / không được làm gì, thông báo, hỏi đáp nhãn giáo viên, tự rời lớp, lớp lưu trữ); phòng live (token vai `assistant`, buổi hiện trong lịch, cho học sinh nói, mời lên bảng, không đụng giáo viên chủ buổi, không kết thúc buổi / tạo link khách) |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 50 / 50 đạt (thêm PWA: sự kiện cài đặt, manifest + icon có thật; loại file Word; vai trợ giảng trong phòng live); `npm run build` đạt |
+| H-UI | 176 unit test (thêm 6 `hui-plot`, 1 công cụ đồ thị của bảng, 1 khối `plot` trong Markdown) đạt; `npm run build`, `check:types` đạt |
+| Trình duyệt | **Nhập Word:** tab "Word (đề soạn sẵn)" → file mẫu upload thật lên Garage → xem trước 4 câu hợp lệ, công thức hiện đúng. **Đồ thị:** "Chèn đồ thị" → xem trước có `hui-plot` (hai đồ thị + điểm A); bảng của phòng live (LiveKit thật): công cụ ƒ → kéo khung → gõ 3 dòng → Ctrl + Enter → parabol, đường thẳng, điểm I(1; −2), hai trục cùng đơn vị. **Trợ giảng:** admin mời `gv.lan` qua giao diện → `gv.lan` thấy lớp ở tab "Trợ giảng", trang lớp không có tab Lộ trình / mời học sinh / "Mời ra", các tab Tiến độ, Bài tập, Báo cáo, Hỏi đáp tải đúng. **PWA** (bản build, `vite preview`): service worker kích hoạt, lưu sẵn trang ngoại tuyến; tắt server rồi mở `/lich-hoc` → trang "Bạn đang ngoại tuyến". Sửa khi thử: tọa độ điểm hiện "1,00; 3,00" → "1; 3", trục x / y không cùng đơn vị (y = x không nghiêng 45°) → tự tính trục y theo khung, ô công thức trên bảng chưa nhận phím khi pane ẩn (focus ngay, không chỉ chờ `requestAnimationFrame`) |
+
+**Chưa thử được:** hộp thoại "Cài ứng dụng" thật (pane của ứng dụng không phát `beforeinstallprompt`; đã test bằng sự kiện giả) — thử trên Chrome / Edge qua HTTPS. File Word thật của giáo viên (nhiều kiểu soạn khác nhau) — nên thử với vài đề thật, gặp kiểu chưa nhận được thì bổ sung quy tắc trong `word.rs`.
+
+**Dữ liệu thử thêm trong DB dev:** `gv.lan` là trợ giảng của lớp "Toán 9 — ôn thi vào 10 (tự học)" (của admin).
+
+**Để sau:** phương trình ẩn / đường tròn trên `hui-plot`, hình học (`hui-geometry`) và hình khối (`hui-solid`) của WB2; nhập đề từ PDF; xem lại bài học ngoại tuyến (lưu nội dung bài vào bộ nhớ máy); thông báo đẩy (Web Push) cho PWA; nhắc lịch buổi học cho trợ giảng qua email.
+
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)
 
 Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".

@@ -24,6 +24,9 @@
       <header class="topbar">
         <hui-button class="menu-toggle" variant="text" @hui-click="menuOpen = !menuOpen">Menu</hui-button>
         <div class="spacer" />
+        <hui-button v-if="canInstall" variant="text" size="sm" title="Cài Smart Learning Space như một ứng dụng trên máy" @hui-click="install">
+          Cài ứng dụng
+        </hui-button>
         <NotificationBell />
         <div v-if="auth.user" class="user">
           <span class="user-name">{{ auth.user.fullName }}</span>
@@ -45,6 +48,9 @@ import { useRouter } from 'vue-router';
 import NotificationBell from '../components/NotificationBell.vue';
 import { useAuthStore } from '../stores/auth';
 import { ROLE_COLORS, ROLE_LABELS, visibleMenu } from '../utils/permissions';
+import { usePwaInstall } from '../utils/pwa';
+
+const { canInstall, install } = usePwaInstall();
 
 const auth = useAuthStore();
 const router = useRouter();

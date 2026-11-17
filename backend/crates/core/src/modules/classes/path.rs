@@ -24,7 +24,7 @@ use super::{
     },
     model::{ClassRow, Step, StepKind, Unlock},
     repository as repo,
-    service::{load_own, not_found},
+    service::{load_own, load_staff_class, not_found},
 };
 use crate::{
     context::AppContext,
@@ -804,7 +804,7 @@ pub async fn my_reviews(ctx: &AppContext, actor: &Actor) -> AppResult<Vec<DueDec
 // ---------- Tiến độ cả lớp (giáo viên) ----------
 
 pub async fn class_progress(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult<ClassProgress> {
-    load_own(ctx, actor, class_id).await?;
+    load_staff_class(ctx, actor, class_id).await?;
     let snap = published_steps(ctx, class_id).await?;
     let refs = load_refs(ctx, &snap.steps).await?;
     let students = repo::members(&ctx.db, class_id, Some("active")).await?;

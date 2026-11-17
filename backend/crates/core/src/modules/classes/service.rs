@@ -43,6 +43,58 @@ pub(super) async fn load_own(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppRe
     Ok(class)
 }
 
+/// Vai của người dạy trong lớp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaffRole {
+    Owner,
+    /// Trợ giảng (M32): xem `assistants.rs` để biết được làm gì.
+    Assistant,
+}
+
+impl StaffRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+/// Trợ giảng đang hoạt động của lớp?
+pub async fn is_assistant(db: &sqlx::PgPool, class_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+    Ok(repo::membership(db, class_id, user_id).await?.is_some_and(|m| m.role == "assistant" && m.status == "active"))
+}
+
+/// Lớp học mà người dùng là chủ lớp hoặc trợ giảng (trợ giảng: chỉ lớp chưa lưu trữ).
+pub async fn load_staff(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(ClassRow, StaffRole)> {
+    actor.require(Permission::TeachingManage)?;
+    let class = repo::find(&ctx.db, id).await?.ok_or_else(not_found)?;
+    if class.owner_id == actor.id {
+        return Ok((class, StaffRole::Owner));
+    }
+    if class.archived_at.is_none() && is_assistant(&ctx.db, id, actor.id).await? {
+        return Ok((class, StaffRole::Assistant));
+    }
+    Err(not_found())
+}
+
+/// Lớp học như người dạy thấy: trợ giảng không thấy mã mời (không mời học sinh thay chủ lớp), thấy tên chủ lớp.
+fn staff_view(class: ClassRow, role: StaffRole) -> ClassResponse {
+    let owner_name = class.owner_name.clone();
+    let mut res: ClassResponse = class.into();
+    res.my_role = Some(role.as_str());
+    if role == StaffRole::Assistant {
+        res.invite_code.clear();
+        res.owner_name = Some(owner_name);
+    }
+    res
+}
+
+/// Như `load_staff`, chỉ lấy lớp học.
+pub(super) async fn load_staff_class(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<ClassRow> {
+    Ok(load_staff(ctx, actor, id).await?.0)
+}
+
 async fn validate_input(ctx: &AppContext, actor: &Actor, input: &ClassInput) -> AppResult<()> {
     input.validate()?;
     teachers::ensure_can_teach(ctx, actor, input.subject_id).await?;
@@ -88,18 +140,24 @@ pub async fn list_own(ctx: &AppContext, actor: &Actor, query: ClassQuery) -> App
     actor.require(Permission::TeachingManage)?;
     let page = PageRequest::new(query.page, query.page_size);
     let filter = ClassFilter {
-        scope: ClassScope::Owner(actor.id, query.archived),
+        scope: if query.assisting {
+            ClassScope::Assistant(actor.id)
+        } else {
+            ClassScope::Owner(actor.id, query.archived)
+        },
         q: query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()),
         subject_id: query.subject_id,
         grade_id: query.grade_id,
     };
     let items = repo::list(&ctx.db, &filter, page.limit(), page.offset()).await?;
     let total = repo::count(&ctx.db, &filter).await?;
-    Ok(Page::new(items.into_iter().map(Into::into).collect(), total, page))
+    let role = if query.assisting { StaffRole::Assistant } else { StaffRole::Owner };
+    Ok(Page::new(items.into_iter().map(|c| staff_view(c, role)).collect(), total, page))
 }
 
 pub async fn get_own(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<ClassResponse> {
-    Ok(load_own(ctx, actor, id).await?.into())
+    let (class, role) = load_staff(ctx, actor, id).await?;
+    Ok(staff_view(class, role))
 }
 
 pub async fn create(ctx: &AppContext, actor: &Actor, input: ClassInput, ip: Option<&str>) -> AppResult<ClassResponse> {
@@ -180,7 +238,7 @@ pub async fn copy(ctx: &AppContext, actor: &Actor, id: Uuid, req: CopyRequest) -
 // ---------- Thành viên (giáo viên) ----------
 
 pub async fn members(ctx: &AppContext, actor: &Actor, id: Uuid, q: MemberQuery) -> AppResult<Vec<MemberResponse>> {
-    load_own(ctx, actor, id).await?;
+    load_staff(ctx, actor, id).await?;
     Ok(repo::members(&ctx.db, id, q.status.as_deref()).await?.into_iter().map(Into::into).collect())
 }
 
@@ -214,8 +272,12 @@ pub async fn add_member(ctx: &AppContext, actor: &Actor, id: Uuid, req: AddMembe
 }
 
 /// approve: chờ duyệt → đang học · reject: chờ duyệt → bị từ chối · remove: đang học → bị mời ra.
+/// Trợ giảng duyệt / từ chối được, không mời ra được.
 pub async fn change_member(ctx: &AppContext, actor: &Actor, id: Uuid, user_id: Uuid, action: &str) -> AppResult<()> {
-    let class = load_own(ctx, actor, id).await?;
+    let (class, role) = load_staff(ctx, actor, id).await?;
+    if role == StaffRole::Assistant && action == "remove" {
+        return Err(AppError::forbidden("OWNER_ONLY", "Chỉ giáo viên chủ lớp mới mời học sinh ra khỏi lớp."));
+    }
     let (from, to): (&[&str], &str) = match action {
         "approve" => (&["pending"], "active"),
         "reject" => (&["pending"], "rejected"),

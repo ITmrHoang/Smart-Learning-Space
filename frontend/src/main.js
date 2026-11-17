@@ -9,6 +9,10 @@ import './styles/app.css';
 import App from './App.vue';
 import { router } from './router';
 import { useAuthStore } from './stores/auth';
+import { setupPwa } from './utils/pwa';
+
+// Bắt sự kiện "cài ứng dụng" sớm (trình duyệt có thể phát trước khi Vue chạy xong)
+setupPwa();
 
 async function bootstrap() {
   setLocale('vi');

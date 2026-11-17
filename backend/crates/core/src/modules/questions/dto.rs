@@ -182,12 +182,23 @@ pub struct ImportQuery {
     pub subject_id: Uuid,
 }
 
-/// Một dòng Excel đã đọc (dạng giống `QuestionInput` để giao diện sửa rồi gửi lại).
+/// Nhập từ Word: file .docx đã upload qua `POST /api/files` (mục đích `import`).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WordImportRequest {
+    pub subject_id: Uuid,
+    pub file_id: Uuid,
+}
+
+/// Một câu đã đọc từ file Excel / Word (dạng giống `QuestionInput` để giao diện sửa rồi gửi lại).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportItem {
-    /// Số dòng trong file (bắt đầu từ 2, dòng 1 là tiêu đề).
+    /// Excel: số dòng trong file (bắt đầu từ 2, dòng 1 là tiêu đề). Word: thứ tự câu trong file (từ 1).
     pub row: usize,
+    /// Word: số câu ghi trong đề, kèm phần nếu có ("II · Câu 3").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub kind: Option<QuestionKind>,
     pub level: Option<QuestionLevel>,
     pub content: String,

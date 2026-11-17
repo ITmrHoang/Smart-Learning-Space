@@ -344,3 +344,71 @@ async fn chua_cau_hinh_livekit(pool: PgPool) {
         .await;
     assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[sqlx::test(migrator = "sls_core::db::MIGRATOR")]
+async fn tro_giang_dieu_khien_phong_nhu_giao_vien(pool: PgPool) {
+    let (app, calls) = live_app(pool).await;
+    let (gv_id, t, toan) = teacher(&app, "gv", "toan").await;
+    let c = class(&app, &t, toan).await;
+    let (_, tg) = app.login_as("gv_tro_giang", UserRole::Teacher).await;
+    let (an_id, an) = app.login_as("hs_an", UserRole::Student).await;
+    ok(&app.post(&format!("/api/classes/{c}/enroll"), json!({}), Some(&an)).await, StatusCode::OK);
+    ok(
+        &app.post(&format!("/api/teaching/classes/{c}/assistants"), json!({ "login": "gv_tro_giang" }), Some(&t)).await,
+        StatusCode::CREATED,
+    );
+    // Phòng mở sớm cho trợ giảng như giáo viên; buổi của lớp hiện trong lịch của trợ giảng
+    let s = live_session(&app, &t, &c, 30, "invited").await;
+    let res = app.post(&format!("/api/sessions/{s}/live/join"), json!({}), Some(&tg)).await;
+    ok(&res, StatusCode::OK);
+    assert_eq!(res.body["role"], "assistant");
+    let tc = claims(res.body["token"].as_str().unwrap());
+    assert_eq!(tc["metadata"], r#"{"role":"assistant"}"#);
+    assert_eq!(tc["video"]["canPublish"], true);
+    assert_ne!(tc["video"]["roomAdmin"], true);
+    let from = (Utc::now() - Duration::days(1)).to_rfc3339();
+    let to = (Utc::now() + Duration::days(1)).to_rfc3339();
+    let res = app.get(&format!("/api/my/sessions?from={}&to={}", urlencode(&from), urlencode(&to)), Some(&tg)).await;
+    ok(&res, StatusCode::OK);
+    assert!(res.body.as_array().unwrap().iter().any(|x| x["id"] == s.as_str()), "{}", res.body);
+
+    // Cho học sinh nói, mời lên bảng, mời ra; không đụng được giáo viên chủ buổi
+    let media =
+        |identity: String| json!({ "identity": identity, "microphone": true, "camera": false, "screen": false });
+    ok(
+        &app.post(&format!("/api/sessions/{s}/live/media"), media(format!("u:{an_id}")), Some(&tg)).await,
+        StatusCode::NO_CONTENT,
+    );
+    assert_eq!(calls.lock().unwrap().last().unwrap().0, "UpdateParticipant");
+    let res = app.post(&format!("/api/sessions/{s}/live/media"), media(format!("u:{gv_id}")), Some(&tg)).await;
+    assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let res = app
+        .post(&format!("/api/sessions/{s}/live/remove"), json!({ "identity": format!("u:{gv_id}") }), Some(&tg))
+        .await;
+    assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
+    ok(
+        &app.post(
+            &format!("/api/sessions/{s}/live/board-turns/start"),
+            json!({ "identity": format!("u:{an_id}") }),
+            Some(&tg),
+        )
+        .await,
+        StatusCode::NO_CONTENT,
+    );
+    // Kết thúc buổi, link khách: chỉ giáo viên chủ buổi
+    assert_eq!(
+        app.post(&format!("/api/sessions/{s}/live/end"), json!({}), Some(&tg)).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.post(&format!("/api/sessions/{s}/live/guest-link"), json!({}), Some(&tg)).await.status,
+        StatusCode::NOT_FOUND
+    );
+    // Học sinh vẫn không điều khiển được
+    let res = app.post(&format!("/api/sessions/{s}/live/media"), media(format!("u:{an_id}")), Some(&an)).await;
+    assert_eq!(res.status, StatusCode::FORBIDDEN);
+}
+
+fn urlencode(s: &str) -> String {
+    s.replace(':', "%3A").replace('+', "%2B")
+}

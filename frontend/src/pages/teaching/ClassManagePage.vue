@@ -6,6 +6,7 @@
         <h1>{{ cls?.title ?? 'Lớp học' }}</h1>
       </div>
       <div v-if="cls" class="row">
+        <hui-tag v-if="isAssistant" color="info">Trợ giảng · lớp của {{ cls.ownerName }}</hui-tag>
         <hui-tag v-if="cls.archived" color="danger">Đã lưu trữ</hui-tag>
         <RouterLink :to="{ name: 'class', params: { id: cls.id } }">Xem như học sinh →</RouterLink>
       </div>
@@ -20,7 +21,7 @@
       </section>
 
       <section v-else-if="tab === 'members'" class="stack">
-        <div class="panel stack">
+        <div v-if="!isAssistant" class="panel stack">
           <h2>Mời học sinh</h2>
           <div class="row">
             <span>Mã mời: <b class="code">{{ cls.inviteCode }}</b></span>
@@ -55,7 +56,27 @@
           <ul class="clean-list">
             <li v-for="m in active" :key="m.userId" class="row between member">
               <span>{{ m.fullName }} <span class="muted small">@{{ m.username }} · vào lớp {{ formatDateTime(m.joinedAt) }}</span></span>
-              <hui-button size="sm" variant="text" @hui-click="change(m, 'remove')">Mời ra</hui-button>
+              <hui-button v-if="!isAssistant" size="sm" variant="text" @hui-click="change(m, 'remove')">Mời ra</hui-button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="panel stack">
+          <h2>Trợ giảng ({{ assistants.length }})</h2>
+          <p class="muted small">
+            Trợ giảng (tài khoản giáo viên) cùng duyệt học sinh, chấm bài tập, trả lời hỏi đáp, xem tiến độ / báo cáo và điều
+            khiển phòng học trực tuyến của lớp. Không sửa được lộ trình, thông tin lớp; không mời học sinh ra khỏi lớp.
+          </p>
+          <form v-if="!isAssistant" class="row" @submit.prevent="addAssistant">
+            <hui-input v-model="assistantLogin" class="grow" label="Mời giáo viên làm trợ giảng (username hoặc email)" :error="assistantError" />
+            <hui-button type="submit" :loading="addingAssistant">Mời</hui-button>
+          </form>
+          <p v-if="!assistants.length" class="muted small">Chưa có trợ giảng.</p>
+          <ul class="clean-list">
+            <li v-for="a in assistants" :key="a.userId" class="row between member">
+              <span>{{ a.fullName }} <span class="muted small">@{{ a.username }} · {{ a.email }}</span></span>
+              <hui-button v-if="!isAssistant" size="sm" variant="text" @hui-click="removeAssistant(a)">Bỏ</hui-button>
+              <hui-button v-else-if="a.userId === auth.user?.id" size="sm" variant="text" @hui-click="removeAssistant(a)">Rời lớp</hui-button>
             </li>
           </ul>
         </div>
@@ -122,7 +143,7 @@
           <dd>{{ formatDateTime(cls.createdAt) }}</dd>
         </dl>
         <hui-markdown v-if="cls.description" :value="cls.description" />
-        <div class="row">
+        <div v-if="!isAssistant" class="row">
           <hui-button variant="outline" @hui-click="editOpen = true">Sửa thông tin</hui-button>
           <hui-button variant="outline" @hui-click="copyOpen = true">Tạo lớp học mới từ lớp này</hui-button>
           <hui-button v-if="!cls.archived" variant="danger" @hui-click="archive(true)">Lưu trữ lớp học</hui-button>
@@ -155,6 +176,7 @@ import ClassFormModal from '../../components/teaching/ClassFormModal.vue';
 import ClassReport from '../../components/teaching/ClassReport.vue';
 import ClassHomework from '../../components/teaching/ClassHomework.vue';
 import PathEditor from '../../components/teaching/PathEditor.vue';
+import { useAuthStore } from '../../stores/auth';
 import { formatDateTime } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
 import { ENROLLMENT_LABELS, MODE_LABELS, VISIBILITY_LABELS, formatScore } from '../../utils/teaching';
@@ -175,8 +197,15 @@ const copyOpen = ref(false);
 const newLogin = ref('');
 const memberError = ref('');
 const adding = ref(false);
+const auth = useAuthStore();
+const assistants = ref([]);
+const assistantLogin = ref('');
+const assistantError = ref('');
+const addingAssistant = ref(false);
+/** Trợ giảng: không có tab lộ trình, không sửa lớp / mời ra học sinh (API cũng chặn). */
+const isAssistant = computed(() => cls.value?.myRole === 'assistant');
 
-const tabs = computed(() => [
+const allTabs = computed(() => [
   { value: 'path', label: 'Lộ trình' },
   { value: 'members', label: `Học sinh${cls.value?.pendingCount ? ` (${cls.value.pendingCount} chờ duyệt)` : ''}` },
   { value: 'progress', label: 'Tiến độ' },
@@ -188,6 +217,7 @@ const tabs = computed(() => [
   },
   { value: 'info', label: 'Thông tin' },
 ]);
+const tabs = computed(() => allTabs.value.filter((t) => !(isAssistant.value && t.value === 'path')));
 const pending = computed(() => members.value.filter((m) => m.status === 'pending'));
 const active = computed(() => members.value.filter((m) => m.status === 'active'));
 const subjectName = computed(() => master.value?.subjects.find((s) => s.id === cls.value?.subjectId)?.name ?? '');
@@ -196,13 +226,49 @@ const classLink = computed(() => (cls.value ? `${window.location.origin}/lop-hoc
 async function reload() {
   try {
     cls.value = await teachingApi.class(route.params.id);
+    if (isAssistant.value && tab.value === 'path') tab.value = 'members';
   } catch (e) {
     error.value = e.message;
   }
 }
 
 async function loadMembers() {
-  members.value = await teachingApi.members(route.params.id).catch(() => []);
+  const id = route.params.id;
+  [members.value, assistants.value] = await Promise.all([
+    teachingApi.members(id).catch(() => []),
+    teachingApi.assistants(id).catch(() => []),
+  ]);
+}
+
+async function addAssistant() {
+  assistantError.value = '';
+  addingAssistant.value = true;
+  try {
+    await teachingApi.addAssistant(cls.value.id, assistantLogin.value.trim());
+    message.success('Đã mời trợ giảng.');
+    assistantLogin.value = '';
+    assistants.value = await teachingApi.assistants(cls.value.id);
+  } catch (e) {
+    assistantError.value = e.fields?.login?.[0] ?? e.message;
+  } finally {
+    addingAssistant.value = false;
+  }
+}
+
+async function removeAssistant(a) {
+  const self = a.userId === auth.user?.id;
+  if (!window.confirm(self ? 'Thôi làm trợ giảng lớp học này?' : `Bỏ ${a.fullName} khỏi danh sách trợ giảng?`)) return;
+  try {
+    await teachingApi.removeAssistant(cls.value.id, a.userId);
+    if (self) {
+      message.success('Bạn đã rời lớp học.');
+      router.push({ name: 'teach-classes' });
+      return;
+    }
+    assistants.value = assistants.value.filter((x) => x.userId !== a.userId);
+  } catch (e) {
+    message.error(e.message);
+  }
 }
 
 async function loadQaCounts() {

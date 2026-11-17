@@ -177,6 +177,51 @@ impl Storage {
         }
     }
 
+    /// Đọc cả file (tối đa `max` byte — lớn hơn thì báo lỗi, không đọc tiếp).
+    pub async fn get(&self, key: &str, max: usize) -> AppResult<Vec<u8>> {
+        let too_big = || AppError::field("file", format!("File tối đa {} MB.", max / 1024 / 1024));
+        match self {
+            Self::Disabled => Err(disabled()),
+            Self::Memory(m) => {
+                let bytes = m.lock().unwrap().get(key).map(|(b, _)| b.clone()).unwrap_or_default();
+                if bytes.len() > max { Err(too_big()) } else { Ok(bytes) }
+            }
+            Self::S3(s) => {
+                let mut res = s.send(Method::GET, key, None).await?;
+                if !res.status().is_success() {
+                    return Err(AppError::internal(format!("Garage GET {key}: {}", res.status())));
+                }
+                let mut out = Vec::new();
+                while let Some(chunk) = res.chunk().await.map_err(AppError::internal)? {
+                    if out.len() + chunk.len() > max {
+                        return Err(too_big());
+                    }
+                    out.extend_from_slice(&chunk);
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// API tự ghi file lên kho (ảnh lấy ra từ file Word…).
+    pub async fn put(&self, key: &str, bytes: &[u8], content_type: &str) -> AppResult<()> {
+        match self {
+            Self::Disabled => Err(disabled()),
+            Self::Memory(_) => {
+                self.memory_put(key, bytes, content_type);
+                Ok(())
+            }
+            Self::S3(s) => {
+                let res = s.put(key, bytes, content_type).await?;
+                if res.status().is_success() {
+                    Ok(())
+                } else {
+                    Err(AppError::internal(format!("Garage PUT {key}: {}", res.status())))
+                }
+            }
+        }
+    }
+
     pub async fn delete(&self, key: &str) -> AppResult<()> {
         match self {
             Self::Disabled => Err(disabled()),
@@ -264,6 +309,36 @@ impl S3Store {
             req = req.header("range", r);
         }
         req.send().await.map_err(|e| AppError::internal(format!("không gọi được Garage: {e}")))
+    }
+
+    /// `PUT` có nội dung: ký cả SHA-256 của nội dung và `Content-Type`.
+    async fn put(&self, key: &str, bytes: &[u8], content_type: &str) -> AppResult<reqwest::Response> {
+        let url = self.object_url(&self.cfg.endpoint, key)?;
+        let now = Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let scope = format!("{}/{}/s3/aws4_request", &amz_date[..8], self.cfg.region);
+        let host = host_header(&url);
+        let payload = hex::encode(Sha256::digest(bytes));
+        let signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date";
+        let canonical = format!(
+            "PUT\n{}\n\ncontent-type:{content_type}\nhost:{host}\nx-amz-content-sha256:{payload}\nx-amz-date:{amz_date}\n\n{signed_headers}\n{payload}",
+            url.path()
+        );
+        let signature = self.signature(&amz_date, &scope, &canonical);
+        let auth = format!(
+            "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
+            self.cfg.access_key
+        );
+        self.http
+            .put(url)
+            .header("content-type", content_type)
+            .header("x-amz-date", &amz_date)
+            .header("x-amz-content-sha256", &payload)
+            .header("authorization", auth)
+            .body(bytes.to_vec())
+            .send()
+            .await
+            .map_err(|e| AppError::internal(format!("không gọi được Garage: {e}")))
     }
 
     fn signature(&self, amz_date: &str, scope: &str, canonical_request: &str) -> String {
@@ -429,7 +504,14 @@ mod tests {
         assert!(res.headers()["content-disposition"].to_str().unwrap().starts_with("inline; filename*=UTF-8''"));
         assert_eq!(res.bytes().await.unwrap().as_ref(), body.as_slice());
 
+        // API tự ghi / đọc cả file (ký nội dung)
+        let key2 = format!("test/{}/api.png", uuid::Uuid::now_v7());
+        storage.put(&key2, &body, "image/png").await.unwrap();
+        assert_eq!(storage.get(&key2, 1024).await.unwrap(), body);
+        assert!(storage.get(&key2, 4).await.is_err());
+
         storage.delete(&key).await.unwrap();
+        storage.delete(&key2).await.unwrap();
         assert!(storage.head(&key).await.unwrap().is_none());
     }
 

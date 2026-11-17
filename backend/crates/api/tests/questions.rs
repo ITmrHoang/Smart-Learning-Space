@@ -190,3 +190,115 @@ async fn import_excel_xem_truoc_roi_luu(pool: PgPool) {
     assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(app.get("/api/teaching/questions", Some(&t)).await.body["total"], 4);
 }
+
+/// Upload file Word lên kho (bộ nhớ) như trình duyệt, trả về id file.
+async fn upload_docx(app: &TestApp, token: &str, bytes: &[u8]) -> String {
+    let ct = sls_core::modules::files::DOCX;
+    let res = app
+        .post(
+            "/api/files",
+            json!({ "purpose": "import", "name": "Đề 15 phút.docx", "contentType": ct, "size": bytes.len() }),
+            Some(token),
+        )
+        .await;
+    ok(&res, StatusCode::CREATED);
+    let id = res.body["id"].as_str().unwrap().to_string();
+    let key: String = sqlx::query_scalar("SELECT object_key FROM files WHERE id = $1::uuid")
+        .bind(&id)
+        .fetch_one(&app.ctx.db)
+        .await
+        .unwrap();
+    assert!(key.starts_with("import/") && key.ends_with(".docx"), "{key}");
+    app.ctx.storage.memory_put(&key, bytes, ct);
+    ok(&app.post(&format!("/api/files/{id}/complete"), json!({}), Some(token)).await, StatusCode::OK);
+    id
+}
+
+#[sqlx::test(migrator = "sls_core::db::MIGRATOR")]
+async fn import_word_xem_truoc_luu_anh_roi_luu(pool: PgPool) {
+    use sls_core::modules::questions::word::{BOLD, UNDERLINE, build_docx, paragraph, run};
+
+    let app = TestApp::new(pool);
+    let (_, t, toan) = teacher(&app, "gv", "toan").await;
+
+    // File mẫu .docx tải về được và đọc lại đủ 4 câu
+    let req = Request::builder()
+        .uri("/api/teaching/questions/import/word-template")
+        .header(header::AUTHORIZATION, format!("Bearer {t}"))
+        .body(Body::empty())
+        .unwrap();
+    let res = app.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(res.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains("mau-cau-hoi.docx"));
+    let template = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    let id = upload_docx(&app, &t, &template).await;
+    let res = app
+        .post("/api/teaching/questions/import/word/preview", json!({ "subjectId": toan, "fileId": id }), Some(&t))
+        .await;
+    ok(&res, StatusCode::OK);
+    assert_eq!(res.body["validCount"], 4, "{}", res.body);
+    assert_eq!(res.body["items"][0]["label"], "I · Câu 1");
+    // File Word là file tạm: đọc xong bị xóa
+    let left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM files WHERE purpose = 'import'").fetch_one(&app.ctx.db).await.unwrap();
+    assert_eq!(left, 0);
+    let res = app
+        .post("/api/teaching/questions/import/word/preview", json!({ "subjectId": toan, "fileId": id }), Some(&t))
+        .await;
+    assert_eq!(res.status, StatusCode::NOT_FOUND);
+
+    // Đề có ảnh: ảnh lưu thành ảnh nội dung, link tạm được thay; xem trước lần hai không sinh thêm ảnh
+    let png: &[u8] = b"\x89PNG\r\n\x1a\n-hinh-ve-do-thi";
+    let image = r#"<w:r><w:drawing><wp:inline><a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rIdImg1"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#;
+    let body = [
+        paragraph(&[run("Câu 1 (TH). ", BOLD), run("Đồ thị trong hình là của hàm số nào?", "")]),
+        paragraph(&[image.to_string()]),
+        paragraph(&[run("A. y = x", "")]),
+        paragraph(&[run("B. y = 2x", UNDERLINE)]),
+        paragraph(&[run("Câu 2. Thiếu đáp án ", ""), image.to_string()]),
+        paragraph(&[run("A. 1", "")]),
+        paragraph(&[run("B. 2", "")]),
+    ]
+    .concat();
+    let docx = build_docx(&body, &[("image1.png", png)]).unwrap();
+    let mut urls = Vec::new();
+    for _ in 0..2 {
+        let id = upload_docx(&app, &t, &docx).await;
+        let res = app
+            .post("/api/teaching/questions/import/word/preview", json!({ "subjectId": toan, "fileId": id }), Some(&t))
+            .await;
+        ok(&res, StatusCode::OK);
+        assert_eq!(res.body["validCount"], 1);
+        let content = res.body["items"][0]["content"].as_str().unwrap().to_string();
+        assert!(content.starts_with("Đồ thị trong hình là của hàm số nào?\n![](/api/files/"), "{content}");
+        assert_eq!(res.body["items"][0]["options"][1]["correct"], true);
+        // Câu lỗi: ảnh không được lưu
+        assert!(res.body["items"][1]["content"].as_str().unwrap().ends_with("[ảnh]"));
+        assert!(!res.body["items"][1]["errors"].as_array().unwrap().is_empty());
+        urls.push(content);
+    }
+    assert_eq!(urls[0], urls[1]);
+    let images: i64 = sqlx::query_scalar("SELECT count(*) FROM files WHERE purpose = 'content'")
+        .fetch_one(&app.ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(images, 1);
+    let url = urls[0].split("](").nth(1).unwrap().trim_end_matches(')');
+    assert_eq!(app.get(url, None).await.status, StatusCode::FOUND);
+
+    // Không phải file Word / file của người khác
+    let (_, other, _) = teacher(&app, "gv2", "toan").await;
+    let id = upload_docx(&app, &t, &docx).await;
+    let res = app
+        .post("/api/teaching/questions/import/word/preview", json!({ "subjectId": toan, "fileId": id }), Some(&other))
+        .await;
+    assert_eq!(res.status, StatusCode::NOT_FOUND);
+    let res = app
+        .post(
+            "/api/files",
+            json!({ "purpose": "import", "name": "de.doc", "contentType": "application/msword", "size": 10 }),
+            Some(&t),
+        )
+        .await;
+    assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
+}

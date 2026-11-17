@@ -13,9 +13,10 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::{
+    assistants,
     model::{ClassRow, Step, StepKind},
     path, repository as repo,
-    service::{load_own, not_found},
+    service::{load_staff_class, not_found},
 };
 use crate::{
     context::AppContext,
@@ -376,9 +377,10 @@ pub async fn submit(
             .await?;
     }
     let title = steps[idx].title.clone();
+    let staff = assistants::staff_ids(ctx, &l.class).await?;
     notifications::notify(
         &mut *tx,
-        &[l.class.owner_id],
+        &staff,
         NotificationKind::HomeworkSubmitted,
         &format!("{} đã nộp bài \"{title}\"{}", actor_name(ctx, actor.id).await?, if late { " (muộn)" } else { "" }),
         &format!("Lớp học \"{}\"", l.class.title),
@@ -435,7 +437,7 @@ async fn class_rows(ctx: &AppContext, class_id: Uuid) -> AppResult<Vec<StatusRow
 
 /// Các bước bài tập của lớp học + số bài đã nộp / đã chấm.
 pub async fn class_homework(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult<Vec<HomeworkStepSummary>> {
-    let class = load_own(ctx, actor, class_id).await?;
+    let class = load_staff_class(ctx, actor, class_id).await?;
     let steps: Vec<Step> = path::published_steps(ctx, class_id)
         .await?
         .steps
@@ -462,7 +464,7 @@ pub async fn step_submissions(
     class_id: Uuid,
     step_id: Uuid,
 ) -> AppResult<StepSubmissions> {
-    let class = load_own(ctx, actor, class_id).await?;
+    let class = load_staff_class(ctx, actor, class_id).await?;
     let step = published_step(ctx, class_id, step_id).await?;
     let a = assignment(ctx, step.assignment_id.ok_or_else(not_found)?).await?;
     let assigned = path::assigned_students(ctx, &class, &step).await?;
@@ -507,10 +509,10 @@ pub async fn step_submissions(
     })
 }
 
-/// Bài nộp + lớp học (kiểm tra giáo viên chủ lớp).
+/// Bài nộp + lớp học (kiểm tra giáo viên chủ lớp hoặc trợ giảng).
 async fn own_submission(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(SubmissionRow, ClassRow)> {
     let row = find_submission(ctx, "s.id = $1", id, None).await?.ok_or_else(submission_not_found)?;
-    let class = load_own(ctx, actor, row.class_id).await.map_err(|_| submission_not_found())?;
+    let class = load_staff_class(ctx, actor, row.class_id).await.map_err(|_| submission_not_found())?;
     Ok((row, class))
 }
 

@@ -2967,6 +2967,7 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "lapin",
+ "quick-xml",
  "redis",
  "reqwest",
  "rust_xlsxwriter",
@@ -2979,6 +2980,7 @@ dependencies = [
  "tracing",
  "uuid",
  "validator",
+ "zip",
 ]
 
 [[package]]

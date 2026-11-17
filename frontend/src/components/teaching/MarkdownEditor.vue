@@ -4,6 +4,9 @@
       <span class="md-editor__label">{{ label }}</span>
       <span class="md-editor__tools">
         <span class="muted small">Markdown · công thức $…$</span>
+        <hui-button size="sm" variant="text" title="Chèn khối đồ thị hàm số (mỗi dòng một đồ thị)" @hui-click="insertPlot">
+          Chèn đồ thị
+        </hui-button>
         <template v-if="images">
           <hui-button size="sm" variant="text" :loading="uploading" @hui-click="fileInput?.click()">
             {{ uploading ? `Đang tải ảnh ${progress}%` : 'Chèn ảnh' }}
@@ -77,6 +80,13 @@ async function insertAtCursor(text) {
   const pos = before.length + lead.length + text.length + trail.length;
   el?.focus();
   el?.setSelectionRange(pos, pos);
+}
+
+/** Khối ```plot mẫu: hiện thành hui-plot (đồ thị kéo / phóng to được, tham số có thanh trượt). */
+const PLOT_TEMPLATE = '```plot\ny = 2x + 1\ny = x^2 - 3\nA(1; 3)\n```';
+
+function insertPlot() {
+  insertAtCursor(PLOT_TEMPLATE);
 }
 
 async function upload(files) {

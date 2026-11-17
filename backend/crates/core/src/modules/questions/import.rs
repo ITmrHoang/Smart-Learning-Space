@@ -122,6 +122,22 @@ pub fn parse_truth(value: &str) -> Option<Vec<bool>> {
     Some(out)
 }
 
+/// Bỏ nhãn ý ở đầu: "a) Đồ thị …" → "Đồ thị …" (cũng nhận "a." / "A)").
+pub fn strip_statement_marker(text: &str) -> &str {
+    let t = text.trim_start();
+    let mut chars = t.chars();
+    if let (Some(letter), Some(delim)) = (chars.next(), chars.next())
+        && letter.is_ascii_alphabetic()
+        && matches!(delim, ')' | '.')
+    {
+        let rest = &t[2..];
+        if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+            return rest.trim_start();
+        }
+    }
+    text
+}
+
 /// Đọc file Excel. `tags`: (tên danh mục đã bỏ dấu, id) của môn đang import.
 pub fn parse_xlsx(bytes: &[u8], tags: &[(String, Uuid)]) -> AppResult<Vec<ImportItem>> {
     let mut wb = Xlsx::new(Cursor::new(bytes)).map_err(invalid_file)?;
@@ -192,6 +208,12 @@ fn parse_row(row: usize, get: &dyn Fn(usize) -> String, tags: &[(String, Uuid)])
     let answer = get(COL_ANSWER);
     let mut options: Vec<OptionInput> =
         option_texts.iter().map(|t| OptionInput { id: None, content: t.clone(), correct: false }).collect();
+    if kind == Some(QuestionKind::TrueFalse) {
+        // Giao diện tự đánh a) b) c) d) — bỏ nhãn giáo viên gõ sẵn trong ô ("a) Đồ thị …")
+        for o in &mut options {
+            o.content = strip_statement_marker(&o.content).to_string();
+        }
+    }
     let mut accepted = Vec::new();
     match kind {
         Some(QuestionKind::Single | QuestionKind::Multiple) => match parse_letters(&answer) {
@@ -238,6 +260,7 @@ fn parse_row(row: usize, get: &dyn Fn(usize) -> String, tags: &[(String, Uuid)])
 
     ImportItem {
         row,
+        label: None,
         kind,
         level,
         content,
@@ -362,6 +385,11 @@ mod tests {
         assert_eq!(items[0].kind, Some(QuestionKind::Single));
         assert!(items[0].options[1].correct);
         assert_eq!(items[2].options.iter().map(|o| o.correct).collect::<Vec<_>>(), vec![true, false, true, false]);
+        // Nhãn "a)" giáo viên gõ trong ô bị bỏ (giao diện tự đánh nhãn)
+        assert_eq!(items[2].options[0].content, "Đồ thị đi qua điểm $(0; 1)$.");
+        assert_eq!(strip_statement_marker("b. x > 0"), "x > 0");
+        assert_eq!(strip_statement_marker("ab) x"), "ab) x");
+        assert_eq!(strip_statement_marker("a)"), "");
         assert_eq!(items[3].accepted, vec!["0,5", "1/2"]);
     }
 }

@@ -18,7 +18,7 @@ use crate::{
     context::AppContext,
     error::{AppError, AppResult},
     modules::{
-        classes::{model::ClassRow, path, repository as classes},
+        classes::{assistants, model::ClassRow, path, repository as classes},
         notifications::{self, NotificationKind},
     },
     pagination::{Page, PageRequest},
@@ -184,6 +184,8 @@ pub struct ReportView {
 
 struct Access {
     class: ClassRow,
+    /// Chủ lớp + trợ giảng (trả lời của họ hiện nhãn giáo viên, nhận thông báo).
+    staff: Vec<Uuid>,
     teacher: bool,
 }
 
@@ -195,14 +197,15 @@ fn thread_not_found() -> AppError {
     AppError::not_found("Không tìm thấy câu hỏi.")
 }
 
-/// Giáo viên chủ lớp hoặc học sinh đang học.
+/// Giáo viên chủ lớp / trợ giảng hoặc học sinh đang học.
 async fn access(ctx: &AppContext, actor: &Actor, class_id: Uuid) -> AppResult<Access> {
     let class = classes::find(&ctx.db, class_id).await?.ok_or_else(class_not_found)?;
-    if class.owner_id == actor.id {
-        return Ok(Access { class, teacher: true });
+    let staff = assistants::staff_ids(ctx, &class).await?;
+    if staff.contains(&actor.id) {
+        return Ok(Access { class, staff, teacher: true });
     }
     match classes::membership(&ctx.db, class_id, actor.id).await? {
-        Some(m) if m.status == "active" => Ok(Access { class, teacher: false }),
+        Some(m) if m.status == "active" => Ok(Access { class, staff, teacher: false }),
         Some(_) => Err(AppError::forbidden("NOT_ENROLLED", "Bạn chưa ghi danh vào lớp học này.")),
         None if class.visibility == "private" => Err(class_not_found()),
         None => Err(AppError::forbidden("NOT_ENROLLED", "Bạn chưa ghi danh vào lớp học này.")),
@@ -232,7 +235,7 @@ async fn thread_access(ctx: &AppContext, actor: &Actor, thread_id: Uuid) -> AppR
     Ok((t, a))
 }
 
-fn summary(t: &ThreadRow, owner_id: Uuid, actor: &Actor, step_titles: &HashMap<Uuid, String>) -> ThreadSummary {
+fn summary(t: &ThreadRow, staff: &[Uuid], actor: &Actor, step_titles: &HashMap<Uuid, String>) -> ThreadSummary {
     ThreadSummary {
         id: t.id,
         class_id: t.class_id,
@@ -241,7 +244,7 @@ fn summary(t: &ThreadRow, owner_id: Uuid, actor: &Actor, step_titles: &HashMap<U
         title: t.title.clone(),
         author_id: t.author_id,
         author_name: t.author_name.clone(),
-        by_teacher: t.author_id == owner_id,
+        by_teacher: staff.contains(&t.author_id),
         pinned: t.pinned,
         answered: t.accepted_post_id.is_some(),
         hidden: t.hidden_at.is_some(),
@@ -279,7 +282,7 @@ pub async fn list(ctx: &AppContext, actor: &Actor, class_id: Uuid, q: ThreadQuer
     .await?;
     let total = rows.first().map_or(0, |r| r.total);
     let titles = path::published_step_titles(ctx, class_id).await?;
-    let items = rows.iter().map(|t| summary(t, a.class.owner_id, actor, &titles)).collect();
+    let items = rows.iter().map(|t| summary(t, &a.staff, actor, &titles)).collect();
     Ok(Page::new(items, total, page))
 }
 
@@ -303,10 +306,9 @@ pub async fn get(ctx: &AppContext, actor: &Actor, thread_id: Uuid) -> AppResult<
     .await?
     .into_iter()
     .collect();
-    let owner = a.class.owner_id;
     let titles = path::published_step_titles(ctx, t.class_id).await?;
     Ok(ThreadDetail {
-        summary: summary(&t, owner, actor, &titles),
+        summary: summary(&t, &a.staff, actor, &titles),
         body: t.body.clone(),
         updated_at: t.updated_at,
         posts: posts
@@ -315,7 +317,7 @@ pub async fn get(ctx: &AppContext, actor: &Actor, thread_id: Uuid) -> AppResult<
                 id: p.id,
                 author_id: p.author_id,
                 author_name: p.author_name,
-                by_teacher: p.author_id == owner,
+                by_teacher: a.staff.contains(&p.author_id),
                 body: if p.hidden_at.is_some() && !a.teacher { String::new() } else { p.body },
                 hidden: p.hidden_at.is_some(),
                 accepted: t.accepted_post_id == Some(p.id),
@@ -360,7 +362,7 @@ pub async fn create(ctx: &AppContext, actor: &Actor, class_id: Uuid, input: Thre
     if !a.teacher {
         notifications::notify(
             &ctx.db,
-            &[a.class.owner_id],
+            &a.staff,
             NotificationKind::QuestionNew,
             &format!("Câu hỏi mới trong lớp học \"{}\"", a.class.title),
             input.title.trim(),
@@ -590,7 +592,7 @@ pub async fn report(ctx: &AppContext, actor: &Actor, input: ReportInput) -> AppR
     if inserted > 0 && !a.teacher {
         notifications::notify(
             &ctx.db,
-            &[a.class.owner_id],
+            &a.staff,
             NotificationKind::ContentReported,
             &format!("Có nội dung bị báo vi phạm trong lớp học \"{}\"", a.class.title),
             input.reason.trim(),
