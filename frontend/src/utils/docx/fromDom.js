@@ -133,7 +133,8 @@ function tableXml(node, ctx) {
   const rows = [...node.querySelectorAll(':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr')];
   const cols = Math.max(1, ...rows.map((r) => [...r.children].length));
   const width = Math.floor((TEXT_WIDTH_TWIPS - (ctx.indent || 0)) / cols);
-  const plain = node.classList.contains('plan-head');
+  // Bảng không viền: phần đầu giáo án / đề, phương án A B C D xếp cột
+  const plain = node.classList.contains('plan-head') || node.classList.contains('plain');
   const border = plain ? 'none' : 'single';
   const borders = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']
     .map((s) => `<w:${s} w:val="${border}" w:sz="4" w:space="0" w:color="auto"/>`)
@@ -183,8 +184,11 @@ export function blocks(node, ctx) {
       const style = child.classList.contains('plan-title') ? 'Title' : `Heading${Math.min(level, 3)}`;
       out.push(paragraph([...child.childNodes], ctx, { style }));
     } else if (name === 'p') {
-      const centered = child.classList.contains('plan-sub');
+      const centered = child.classList.contains('plan-sub') || child.classList.contains('center');
       out.push(paragraph([...child.childNodes], ctx, { align: centered ? 'center' : undefined }));
+    } else if (name === 'div' && child.classList.contains('page-break')) {
+      // Sang trang mới (mỗi mã đề một trang riêng)
+      out.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
     } else if (name === 'ul' || name === 'ol') {
       out.push(...list(child, ctx));
     } else if (name === 'table') {

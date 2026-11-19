@@ -1341,17 +1341,15 @@ impl Draft {
     fn finish(self, row: usize, tags: &[(String, Uuid)]) -> ImportItem {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
-        let content = self.content.join("\n").trim().to_string();
+        let mut content = self.content.join("\n").trim().to_string();
         if content.is_empty() {
             errors.push("Thiếu nội dung câu hỏi.".to_string());
         }
 
         let has_options = !self.options.is_empty();
         let kind = match self.section {
-            Some(Section::Essay) => {
-                errors.push("Câu tự luận chưa nhập được (chỉ nhận trắc nghiệm, đúng sai, trả lời ngắn).".to_string());
-                None
-            }
+            // Tự luận: nội dung + lời giải; hướng dẫn chấm theo bước giáo viên thêm sau ở trang sửa câu.
+            Some(Section::Essay) => Some(QuestionKind::Essay),
             _ if self.statements => Some(QuestionKind::TrueFalse),
             Some(Section::TrueFalse) if has_options => Some(QuestionKind::TrueFalse),
             _ if has_options => Some(QuestionKind::Single),
@@ -1437,6 +1435,12 @@ impl Draft {
                     .collect();
                 if accepted.is_empty() {
                     errors.push("Câu trả lời ngắn: thiếu dòng \"Đáp án: …\".".to_string());
+                }
+            }
+            Some(QuestionKind::Essay) => {
+                // "a) …, b) …" của câu tự luận là các ý của đề, không phải phương án → đưa lại vào nội dung câu
+                for (i, o) in options.drain(..).enumerate() {
+                    content.push_str(&format!("\n\n{}) {}", (b'a' + i as u8) as char, o.content));
                 }
             }
             None => {}

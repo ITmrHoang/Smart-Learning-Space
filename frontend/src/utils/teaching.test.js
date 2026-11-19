@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatClock, formatScore, isAnswered, letter, secondsLeft, videoEmbed } from './teaching';
+import { formatClock, formatScore, isAnswered, letter, questionPoints, rubricTotal, secondsLeft, videoEmbed } from './teaching';
 
 describe('video bài giảng', () => {
   it('nhận các dạng link YouTube → nhúng youtube-nocookie', () => {
@@ -50,5 +50,33 @@ describe('làm bài', () => {
     expect(formatScore(7.25)).toBe('7,25');
     expect(formatScore(null)).toBe('—');
     expect(letter(2)).toBe('C');
+  });
+});
+
+describe('câu tự luận', () => {
+  const essay = { id: 'e1', kind: 'essay', rubric: [{ points: 0.25 }, { points: 0.5 }, { points: 0.25 }] };
+  const mc = { id: 'q1', kind: 'single', rubric: [] };
+
+  it('tổng điểm các bước chấm', () => {
+    expect(rubricTotal(essay.rubric)).toBe(1);
+    expect(rubricTotal([{ points: 0.1 }, { points: 0.2 }])).toBe(0.3);
+    expect(rubricTotal(undefined)).toBe(0);
+  });
+
+  it('điểm câu cố định: điểm riêng → tổng bước (tự luận) → điểm của phần', () => {
+    const section = { pointsPerQuestion: 2, questionPoints: {} };
+    expect(questionPoints(section, mc)).toBe(2);
+    expect(questionPoints(section, essay)).toBe(1);
+    expect(questionPoints(section, { ...essay, rubric: [] })).toBe(2);
+    expect(questionPoints({ ...section, questionPoints: { e1: 3 } }, essay)).toBe(3);
+    expect(questionPoints({ ...section, questionPoints: { q1: 0 } }, mc)).toBe(0);
+  });
+
+  it('đã làm khi gõ bài hoặc có ảnh', () => {
+    const it = (answer) => ({ kind: 'essay', options: [], answer });
+    expect(isAnswered(it(null))).toBe(false);
+    expect(isAnswered(it({ text: '  ' }))).toBe(false);
+    expect(isAnswered(it({ text: 'x = 2' }))).toBe(true);
+    expect(isAnswered(it({ files: ['f1'] }))).toBe(true);
   });
 });

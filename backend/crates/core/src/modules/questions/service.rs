@@ -10,8 +10,8 @@ use super::{
         BulkCreateRequest, BulkCreateResponse, FolderInput, FolderResponse, ImportItem, ImportPreview, QuestionInput,
         QuestionQuery, QuestionResponse, RegradeResponse, SaveQuestionResponse, WordImportRequest,
     },
-    import,
-    model::{QOption, QuestionBody, QuestionKind, QuestionRow, QuestionVersion},
+    expr, grading, import,
+    model::{MatchMode, QOption, QuestionBody, QuestionKind, QuestionRow, QuestionVersion, RubricStep},
     repository::{self as repo, QuestionFields, QuestionFilter},
     word,
 };
@@ -65,13 +65,35 @@ pub fn build_body(input: &QuestionInput, previous: Option<&QuestionBody>) -> App
         QuestionKind::Short if n > 0 => {
             return Err(AppError::field("options", "Câu trả lời ngắn không có phương án."));
         }
+        QuestionKind::Essay if n > 0 => {
+            return Err(AppError::field("options", "Câu tự luận không có phương án."));
+        }
         _ => {}
     }
     let accepted: Vec<String> = input.accepted.iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
-    if input.kind == QuestionKind::Short
-        && (accepted.is_empty() || accepted.len() > 10 || accepted.iter().any(|a| a.chars().count() > 200))
-    {
+    let short = input.kind == QuestionKind::Short;
+    if short && (accepted.is_empty() || accepted.len() > 10 || accepted.iter().any(|a| a.chars().count() > 200)) {
         return Err(AppError::field("accepted", "Nhập từ 1 đến 10 đáp án chấp nhận, mỗi đáp án tối đa 200 ký tự."));
+    }
+    if short && input.match_mode == MatchMode::Expression {
+        for a in &accepted {
+            if let Err(e) = expr::parse_answer(a) {
+                return Err(AppError::field("accepted", format!("Đáp án \"{a}\" chưa đọc được thành biểu thức: {e}")));
+            }
+        }
+    }
+    let essay = input.kind == QuestionKind::Essay;
+    if !essay && !input.rubric.is_empty() {
+        return Err(AppError::field("rubric", "Chỉ câu tự luận mới có hướng dẫn chấm."));
+    }
+    let old_steps: Vec<Uuid> = previous.map(|p| p.rubric.iter().map(|s| s.id).collect()).unwrap_or_default();
+    let mut rubric: Vec<RubricStep> = Vec::with_capacity(input.rubric.len());
+    for s in &input.rubric {
+        let id = match s.id {
+            Some(id) if old_steps.contains(&id) && !rubric.iter().any(|r| r.id == id) => id,
+            _ => Uuid::now_v7(),
+        };
+        rubric.push(RubricStep { id, content: s.content.trim().to_string(), points: grading::round2(s.points) });
     }
 
     // Giữ ID cũ (chỉ khi ID thật sự thuộc phiên bản trước, không trùng) để chấm theo ID qua các phiên bản.
@@ -94,9 +116,12 @@ pub fn build_body(input: &QuestionInput, previous: Option<&QuestionBody>) -> App
         content: input.content.trim().to_string(),
         options,
         correct,
-        accepted: if input.kind == QuestionKind::Short { accepted } else { Vec::new() },
+        accepted: if short { accepted } else { Vec::new() },
         explanation: input.explanation.trim().to_string(),
         shuffle_options: input.shuffle_options,
+        rubric,
+        tolerance: if short { input.tolerance.filter(|t| *t > 0.0) } else { None },
+        match_mode: if short { input.match_mode } else { MatchMode::Auto },
     })
 }
 
@@ -205,7 +230,11 @@ pub async fn update(
     old_correct.sort();
     let mut new_correct = body.correct.clone();
     new_correct.sort();
-    let answer_changed = old_correct != new_correct || old.accepted != body.accepted;
+    // Tự luận do giáo viên chấm tay: sửa hướng dẫn chấm không chấm lại tự động.
+    let answer_changed = old_correct != new_correct
+        || old.accepted != body.accepted
+        || old.tolerance != body.tolerance
+        || old.match_mode != body.match_mode;
 
     let mut tx = ctx.db.begin().await?;
     let search = search_text(&body);
@@ -371,6 +400,9 @@ fn check_items(subject_id: Uuid, mut items: Vec<ImportItem>) -> ImportPreview {
             accepted: item.accepted.clone(),
             explanation: item.explanation.clone(),
             shuffle_options: true,
+            rubric: Vec::new(),
+            tolerance: None,
+            match_mode: MatchMode::Auto,
         };
         if let Err(e) = build_body(&input, None) {
             let detail = e.fields.as_ref().and_then(|f| f.values().next()).and_then(|v| v.first()).cloned();

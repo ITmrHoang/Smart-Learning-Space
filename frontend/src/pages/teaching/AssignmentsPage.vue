@@ -23,9 +23,13 @@
           </hui-tag>
           <hui-tag size="sm" :color="a.submissionCount ? 'success' : 'secondary'">{{ a.submissionCount }} bài nộp</hui-tag>
         </div>
-        <p class="muted small" style="margin: 0">Cập nhật {{ formatDateTime(a.updatedAt) }}</p>
+        <div class="row between">
+          <span class="muted small">Cập nhật {{ formatDateTime(a.updatedAt) }}</span>
+          <hui-button size="sm" variant="outline" @hui-click="assigning = a">Giao nhanh</hui-button>
+        </div>
       </article>
     </div>
+    <QuickAssignModal :open="Boolean(assigning)" kind="homework" :refId="assigning?.id ?? ''" :refTitle="assigning?.title ?? ''" @update:open="(v) => !v && (assigning = null)" />
 
     <hui-modal
       :open="editorOpen"
@@ -62,6 +66,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 
 import { teachingApi } from '../../api';
 import MarkdownEditor from '../../components/teaching/MarkdownEditor.vue';
+import QuickAssignModal from '../../components/teaching/QuickAssignModal.vue';
 import { formatDateTime, useSubmit } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
 import { formatScore } from '../../utils/teaching';
@@ -70,6 +75,7 @@ const { data: master, load: loadMaster } = useMasterData();
 const { loading, error: formError, fields, run, reset } = useSubmit();
 const items = ref([]);
 const loaded = ref(false);
+const assigning = ref(null);
 const error = ref('');
 const editorOpen = ref(false);
 const editing = ref(null);

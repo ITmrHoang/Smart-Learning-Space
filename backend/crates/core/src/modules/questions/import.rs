@@ -73,6 +73,7 @@ pub fn parse_kind(value: &str) -> Option<QuestionKind> {
         "nhieu-dap-an" | "multiple" | "chon-nhieu" => Some(QuestionKind::Multiple),
         "dung-sai" | "true-false" | "dung-sai-4-y" | "d-s" => Some(QuestionKind::TrueFalse),
         "tra-loi-ngan" | "short" | "dien-dap-an" | "tu-dien" => Some(QuestionKind::Short),
+        "tu-luan" | "essay" => Some(QuestionKind::Essay),
         _ => None,
     }
 }
@@ -246,7 +247,12 @@ fn parse_row(row: usize, get: &dyn Fn(usize) -> String, tags: &[(String, Uuid)])
                 options.clear();
             }
         }
-        None => {}
+        // Tự luận: nội dung + lời giải; hướng dẫn chấm theo bước thêm ở trang sửa câu.
+        Some(QuestionKind::Essay) if !options.is_empty() => {
+            warnings.push("Câu tự luận không dùng các cột phương án — đã bỏ qua.".to_string());
+            options.clear();
+        }
+        Some(QuestionKind::Essay) | None => {}
     }
 
     let mut tag_ids = Vec::new();
@@ -356,7 +362,8 @@ mod tests {
         assert_eq!(parse_kind("Một đáp án"), Some(QuestionKind::Single));
         assert_eq!(parse_kind("ĐÚNG SAI"), Some(QuestionKind::TrueFalse));
         assert_eq!(parse_kind("Trả lời ngắn"), Some(QuestionKind::Short));
-        assert_eq!(parse_kind("tự luận"), None);
+        assert_eq!(parse_kind("tự luận"), Some(QuestionKind::Essay));
+        assert_eq!(parse_kind("bài văn"), None);
         assert_eq!(parse_level("VDC"), Some(QuestionLevel::VanDungCao));
         assert_eq!(parse_level("Thông hiểu"), Some(QuestionLevel::ThongHieu));
     }

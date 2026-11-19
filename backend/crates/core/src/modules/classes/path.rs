@@ -20,7 +20,8 @@ use validator::Validate;
 use super::{
     dto::{
         ClassCard, ClassProgress, DraftStep, DueDeck, LearnStep, LearnView, PathInput, PathResponse, ProgressCell,
-        ProgressStep, ProgressSummary, StartedAttempt, StepLesson, StepStatus, StudentProgress,
+        ProgressStep, ProgressSummary, QuickAssignInput, QuickAssignResponse, StartedAttempt, StepLesson, StepStatus,
+        StudentProgress,
     },
     model::{ClassRow, Step, StepKind, Unlock},
     repository as repo,
@@ -366,7 +367,8 @@ pub async fn save_path(ctx: &AppContext, actor: &Actor, class_id: Uuid, input: P
             session_id,
             deck_id,
             assignment_id,
-            due_at: if s.kind == StepKind::Homework { s.due_at } else { None },
+            // Bài tập: hạn nộp (nộp muộn vẫn nhận). Đề: hạn làm (quá hạn không bắt đầu được).
+            due_at: if matches!(s.kind, StepKind::Homework | StepKind::Exam) { s.due_at } else { None },
             unlock: if s.kind == StepKind::Milestone { Unlock::Free } else { s.unlock },
             pass_score: if s.kind == StepKind::Exam { s.pass_score } else { None },
             audience_group_ids: if s.kind == StepKind::Milestone { Vec::new() } else { dedup(s.audience_group_ids) },
@@ -455,6 +457,111 @@ pub async fn publish_path(
     )
     .await?;
     get_path(ctx, actor, class_id).await
+}
+
+// ---------- Giao nhanh (M41) ----------
+
+/// Giao nhanh một đề / bài tập cho cả lớp, nhóm hoặc vài học sinh, không cần mở trang lộ trình: thêm bước vào cuối
+/// bản nháp **và** tạo phiên bản xuất bản mới = bản đã xuất bản gần nhất + bước mới. Phần giáo viên đang sửa dở ở
+/// bản nháp không bị xuất bản theo. Học sinh được giao nhận thông báo.
+pub async fn quick_assign(
+    ctx: &AppContext,
+    actor: &Actor,
+    class_id: Uuid,
+    input: QuickAssignInput,
+    ip: Option<&str>,
+) -> AppResult<QuickAssignResponse> {
+    input.validate()?;
+    let class = load_own(ctx, actor, class_id).await?;
+    if class.archived_at.is_some() {
+        return Err(AppError::conflict("CLASS_ARCHIVED", "Lớp học đã lưu trữ."));
+    }
+    if input.due_at.is_some_and(|d| d <= Utc::now()) {
+        return Err(AppError::field("dueAt", "Hạn làm phải sau thời điểm hiện tại."));
+    }
+    let (exam_id, assignment_id, ref_title) = match input.kind {
+        StepKind::Exam => {
+            let id = input.exam_id.ok_or_else(|| AppError::field("examId", "Chưa chọn đề."))?;
+            match exams::refs(ctx, &[id]).await?.into_iter().next() {
+                Some(e) if e.owner_id == actor.id && !e.archived && e.item_count > 0 => (Some(id), None, e.title),
+                Some(e) if e.owner_id == actor.id && !e.archived => {
+                    return Err(AppError::field("examId", format!("Đề \"{}\" chưa có câu hỏi.", e.title)));
+                }
+                _ => return Err(AppError::field("examId", "Đề không tồn tại hoặc đã bị ẩn.")),
+            }
+        }
+        StepKind::Homework => {
+            let id = input.assignment_id.ok_or_else(|| AppError::field("assignmentId", "Chưa chọn bài tập."))?;
+            match assignments::refs(ctx, &[id]).await?.into_iter().next() {
+                Some(a) if a.owner_id == actor.id && !a.archived => (None, Some(id), a.title),
+                _ => return Err(AppError::field("assignmentId", "Bài tập không tồn tại hoặc đã bị ẩn.")),
+            }
+        }
+        _ => return Err(AppError::field("kind", "Chỉ giao nhanh được đề hoặc bài tập.")),
+    };
+    let group_ids = dedup(input.group_ids);
+    let user_ids = dedup(input.user_ids);
+    groups::ensure_own_groups(ctx, actor.id, &group_ids)
+        .await
+        .map_err(|_| AppError::field("groupIds", "Có nhóm học sinh không tồn tại."))?;
+    let students: HashSet<Uuid> =
+        repo::members(&ctx.db, class_id, Some("active")).await?.into_iter().map(|m| m.user_id).collect();
+    if user_ids.iter().any(|u| !students.contains(u)) {
+        return Err(AppError::field("userIds", "Có học sinh không thuộc lớp học này."));
+    }
+
+    let step = Step {
+        id: Uuid::now_v7(),
+        kind: input.kind,
+        title: input.title.trim().to_string(),
+        lesson_id: None,
+        exam_id,
+        session_id: None,
+        deck_id: None,
+        assignment_id,
+        due_at: input.due_at,
+        unlock: Unlock::Free,
+        pass_score: None,
+        audience_group_ids: group_ids,
+        audience_user_ids: user_ids,
+    };
+    let mut tx = ctx.db.begin().await?;
+    let mut draft = repo::draft_steps(&mut *tx, class_id).await?;
+    draft.push(step.clone());
+    repo::replace_steps(&mut tx, class_id, &draft).await?;
+    let mut published = repo::latest_version(&mut *tx, class_id).await?.map(|v| v.steps.0).unwrap_or_default();
+    published.push(step.clone());
+    let version = repo::insert_version(&mut *tx, class_id, &published, actor.id).await?;
+    audit::record(
+        &mut *tx,
+        AuditEntry {
+            actor_id: Some(actor.id),
+            action: "class.quick_assign",
+            target_type: "class",
+            target_id: Some(class_id),
+            data: json!({ "version": version, "stepId": step.id, "kind": step.kind.as_str() }),
+            ip,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+
+    let assigned = assigned_students(ctx, &class, &step).await?;
+    let title = if step.title.is_empty() { ref_title } else { step.title.clone() };
+    let body = match step.due_at {
+        Some(d) => format!("Lớp \"{}\" · hạn {}", class.title, crate::modules::sessions::time::format_vn(d)),
+        None => format!("Lớp \"{}\"", class.title),
+    };
+    notifications::notify(
+        &ctx.db,
+        &assigned,
+        NotificationKind::WorkAssigned,
+        &format!("Bài mới: {title}"),
+        &body,
+        Some(&format!("/lop-hoc/{class_id}")),
+    )
+    .await?;
+    Ok(QuickAssignResponse { step_id: step.id, version, assigned: assigned.len() })
 }
 
 // ---------- Học theo lộ trình (học sinh) ----------
@@ -699,9 +806,9 @@ pub async fn start_exam(ctx: &AppContext, actor: &Actor, class_id: Uuid, step_id
     let (l, steps, idx) = open_step(ctx, actor, class_id, step_id).await?;
     let exam_id = steps[idx].exam_id.ok_or_else(|| AppError::not_found("Bước này không phải đề."))?;
     let c = if l.preview {
-        AttemptContext { class_id: None, step_id: None, preview: true }
+        AttemptContext { class_id: None, step_id: None, preview: true, due_at: None }
     } else {
-        AttemptContext { class_id: Some(class_id), step_id: Some(step_id), preview: false }
+        AttemptContext { class_id: Some(class_id), step_id: Some(step_id), preview: false, due_at: steps[idx].due_at }
     };
     Ok(StartedAttempt { attempt_id: exams::start_attempt(ctx, actor.id, exam_id, c).await? })
 }

@@ -19,6 +19,7 @@ pub mod notifications;
 pub mod profiles;
 pub mod questions;
 pub mod sessions;
+pub mod snippets;
 pub mod sso;
 pub mod teachers;
 pub mod tutoring;

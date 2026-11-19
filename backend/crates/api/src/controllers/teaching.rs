@@ -16,13 +16,17 @@ use sls_core::{
             assistants,
             dto::{
                 AddMemberRequest, ClassInput, ClassProgress, ClassQuery, ClassResponse, CopyRequest, MemberQuery,
-                MemberResponse, PathInput, PathResponse,
+                MemberResponse, PathInput, PathResponse, QuickAssignInput, QuickAssignResponse,
             },
             path, service as classes,
         },
         exams::{
-            dto::{AttemptQuery, AttemptSummary, AttemptView, ExamInput, ExamQuery, ExamResponse, ExamSummary},
+            dto::{
+                AttemptQuery, AttemptSummary, AttemptView, ExamInput, ExamQuery, ExamResponse, ExamSummary,
+                GradeItemInput, PapersInput, PapersResponse, QueueItem,
+            },
             service as exams,
+            sets::{self as exam_sets, ExamSetDetail, ExamSetInput, ExamSetSummary},
         },
         lessons::{
             dto::{LessonInput, LessonQuery, LessonResponse, LessonSummary, RevisionSummary},
@@ -46,6 +50,7 @@ use sls_core::modules::{
     groups,
     lesson_plans::{self as plans, LessonPlanDetail, LessonPlanInput, LessonPlanQuery, LessonPlanSummary},
     sessions::{dto as session_dto, service as sessions},
+    snippets::{self, Snippet, SnippetInput},
 };
 
 use crate::extract::{Client, JsonBody, PathParam, QueryParams, ValidatedJson};
@@ -76,6 +81,10 @@ pub fn routes() -> Router<AppContext> {
         .route("/classes/{id}/path", get(get_path).put(save_path))
         .route("/classes/{id}/path/publish", post(publish_path))
         .route("/classes/{id}/progress", get(class_progress))
+        .route("/classes/{id}/quick-assign", post(quick_assign))
+        // Bộ đề (M41)
+        .route("/exam-sets", get(list_sets).post(create_set))
+        .route("/exam-sets/{id}", get(get_set).put(update_set).delete(archive_set))
         // Câu hỏi
         .route("/questions", get(list_questions).post(create_question))
         .route("/questions/bulk", post(bulk_create))
@@ -92,6 +101,12 @@ pub fn routes() -> Router<AppContext> {
         .route("/exams/{id}", get(get_exam).put(update_exam).delete(archive_exam))
         .route("/exams/{id}/preview", post(preview_exam))
         .route("/exams/{id}/attempts", get(exam_attempts))
+        .route("/exams/{id}/papers", get(exam_papers).post(generate_papers))
+        // Chấm tự luận (M39)
+        .route("/grading", get(grading_queue))
+        .route("/attempts/{id}/items/{position}/grade", axum::routing::put(grade_item))
+        .route("/comment-snippets", get(list_snippets).post(create_snippet))
+        .route("/comment-snippets/{id}", axum::routing::delete(delete_snippet))
 }
 
 // ---------- Bài học ----------
@@ -357,6 +372,54 @@ async fn publish_path(
     Ok(Json(path::publish_path(&ctx, &actor, id, client.ip.as_deref()).await?))
 }
 
+async fn quick_assign(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    Client(client): Client,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<QuickAssignInput>,
+) -> AppResult<(StatusCode, Json<QuickAssignResponse>)> {
+    Ok((StatusCode::CREATED, Json(path::quick_assign(&ctx, &actor, id, input, client.ip.as_deref()).await?)))
+}
+
+async fn list_sets(State(ctx): State<AppContext>, actor: Actor) -> AppResult<Json<Vec<ExamSetSummary>>> {
+    Ok(Json(exam_sets::list(&ctx, &actor).await?))
+}
+
+async fn get_set(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<ExamSetDetail>> {
+    Ok(Json(exam_sets::get(&ctx, &actor, id).await?))
+}
+
+async fn create_set(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    JsonBody(input): JsonBody<ExamSetInput>,
+) -> AppResult<(StatusCode, Json<ExamSetDetail>)> {
+    Ok((StatusCode::CREATED, Json(exam_sets::create(&ctx, &actor, input).await?)))
+}
+
+async fn update_set(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<ExamSetInput>,
+) -> AppResult<Json<ExamSetDetail>> {
+    Ok(Json(exam_sets::update(&ctx, &actor, id, input).await?))
+}
+
+async fn archive_set(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<StatusCode> {
+    exam_sets::archive(&ctx, &actor, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn class_progress(
     State(ctx): State<AppContext>,
     actor: Actor,
@@ -558,6 +621,61 @@ async fn exam_attempts(
     QueryParams(q): QueryParams<AttemptQuery>,
 ) -> AppResult<Json<Vec<AttemptSummary>>> {
     Ok(Json(exams::exam_attempts(&ctx, &actor, id, q).await?))
+}
+
+// ---------- Mã đề (M40) ----------
+
+async fn exam_papers(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<PapersResponse>> {
+    Ok(Json(exams::papers(&ctx, &actor, id).await?))
+}
+
+async fn generate_papers(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<PapersInput>,
+) -> AppResult<(StatusCode, Json<PapersResponse>)> {
+    Ok((StatusCode::CREATED, Json(exams::generate_papers(&ctx, &actor, id, input).await?)))
+}
+
+// ---------- Chấm tự luận (M39) ----------
+
+async fn grading_queue(State(ctx): State<AppContext>, actor: Actor) -> AppResult<Json<Vec<QueueItem>>> {
+    Ok(Json(exams::grading_queue(&ctx, &actor).await?))
+}
+
+async fn grade_item(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam((id, position)): PathParam<(Uuid, i32)>,
+    JsonBody(input): JsonBody<GradeItemInput>,
+) -> AppResult<Json<AttemptView>> {
+    Ok(Json(exams::grade_item(&ctx, &actor, id, position, input).await?))
+}
+
+async fn list_snippets(State(ctx): State<AppContext>, actor: Actor) -> AppResult<Json<Vec<Snippet>>> {
+    Ok(Json(snippets::list(&ctx, &actor).await?))
+}
+
+async fn create_snippet(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    JsonBody(input): JsonBody<SnippetInput>,
+) -> AppResult<(StatusCode, Json<Snippet>)> {
+    Ok((StatusCode::CREATED, Json(snippets::create(&ctx, &actor, input).await?)))
+}
+
+async fn delete_snippet(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<StatusCode> {
+    snippets::delete(&ctx, &actor, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---------- Nhóm học sinh (M13) ----------

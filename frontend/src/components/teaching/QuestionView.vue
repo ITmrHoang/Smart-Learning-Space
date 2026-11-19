@@ -3,7 +3,10 @@
     <header v-if="!bare" class="q__head">
       <strong>Câu {{ number }}</strong>
       <span class="muted small">{{ QUESTION_KIND_LABELS[item.kind] }} · {{ formatScore(item.points) }} điểm</span>
-      <hui-tag v-if="item.result" size="sm" :color="item.result.isCorrect ? 'success' : partial ? 'warning' : 'danger'">
+      <hui-tag v-if="item.manual && item.grading" size="sm" :color="item.grading.pending ? 'warning' : 'info'">
+        {{ item.grading.pending ? 'Chờ giáo viên chấm' : `${formatScore(item.grading.score)} / ${formatScore(item.points)} điểm` }}
+      </hui-tag>
+      <hui-tag v-else-if="item.result && !item.manual" size="sm" :color="item.result.isCorrect ? 'success' : partial ? 'warning' : 'danger'">
         {{ item.result.isCorrect ? 'Đúng' : partial ? 'Đúng một phần' : 'Sai' }} · {{ formatScore(item.result.score) }} điểm
       </hui-tag>
     </header>
@@ -69,7 +72,54 @@
       />
       <p v-if="item.result" class="small">
         Đáp án chấp nhận: <b>{{ item.result.accepted.join(' · ') }}</b>
+        <template v-if="item.result.matchMode === 'expression'"> · biểu thức tương đương đều đúng</template>
+        <template v-if="item.result.tolerance"> · sai số ±{{ formatScore(item.result.tolerance) }}</template>
       </p>
+    </div>
+
+    <!-- Tự luận: gõ bài và / hoặc chụp ảnh bài làm -->
+    <div v-else-if="item.kind === 'essay'" class="q__essay">
+      <template v-if="!locked">
+        <textarea
+          class="native-input"
+          rows="5"
+          maxlength="10000"
+          placeholder="Gõ bài làm (gõ được $công thức$) — hoặc làm ra giấy rồi chụp ảnh bên dưới"
+          :value="item.answer?.text ?? ''"
+          @input="emitAnswer({ text: $event.target.value }, true)"
+          @change="emitAnswer({ text: $event.target.value })"
+        />
+        <div class="row">
+          <hui-button size="sm" variant="outline" :disabled="files.length >= 10" @hui-click="camera?.click()">📷 Chụp ảnh bài làm</hui-button>
+          <hui-button size="sm" variant="outline" :disabled="files.length >= 10" @hui-click="picker?.click()">Chọn ảnh / PDF</hui-button>
+          <span class="muted small">Tối đa 10 file · ảnh tự thu nhỏ trước khi gửi</span>
+          <input ref="picker" type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden @change="onFiles" />
+          <input ref="camera" type="file" accept="image/*" capture="environment" hidden @change="onFiles" />
+        </div>
+      </template>
+      <hui-markdown v-else-if="item.answer?.text" class="q__essay-text" :value="item.answer.text" />
+      <p v-else-if="!files.length" class="muted small">Không có bài làm.</p>
+      <FileThumbs v-if="files.length" :files="files" :removable="!locked" @remove="removeFile" />
+
+      <div v-if="item.grading && !item.grading.pending" class="q__grading">
+        <span class="muted small">Giáo viên chấm</span>
+        <ul v-if="item.result?.rubric?.length" class="q__rubric">
+          <li v-for="s in item.result.rubric" :key="s.id">
+            <hui-markdown inline :value="s.content" />
+            <b>{{ formatScore(item.grading.marks[s.id] ?? 0) }} / {{ formatScore(s.points) }}</b>
+          </li>
+        </ul>
+        <hui-markdown v-if="item.grading.feedback" :value="item.grading.feedback" />
+      </div>
+      <div v-else-if="item.result?.rubric?.length" class="q__grading">
+        <span class="muted small">Hướng dẫn chấm</span>
+        <ul class="q__rubric">
+          <li v-for="s in item.result.rubric" :key="s.id">
+            <hui-markdown inline :value="s.content" />
+            <b>{{ formatScore(s.points) }} đ</b>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <div v-if="item.result?.explanation" class="q__explain">
@@ -85,9 +135,12 @@
  * Một câu hỏi trong lượt làm bài (AttemptView.items[]): làm bài hoặc xem lại (khi có `item.result`).
  * Phát `answer` với câu trả lời mới: { selected } | { truth } | { text }. `typing = true` khi đang gõ (lưu trễ).
  */
-import { computed } from 'vue';
+import { message } from '@itmrhoang/h-ui/hui-message';
+import { computed, ref } from 'vue';
 
 import { QUESTION_KIND_LABELS, formatScore, letter, statementLetter } from '../../utils/teaching';
+import { uploadFile } from '../../utils/upload';
+import FileThumbs from '../learning/FileThumbs.vue';
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -99,18 +152,54 @@ const props = defineProps({
 });
 const emit = defineEmits(['answer']);
 
-const locked = computed(() => props.readonly || props.item.checked || Boolean(props.item.result));
+const locked = computed(() => props.readonly || props.item.checked || Boolean(props.item.result) || Boolean(props.item.grading));
 const selected = computed(() => props.item.answer?.selected ?? []);
 const truth = computed(() => props.item.answer?.truth ?? {});
 const partial = computed(() => props.item.result && !props.item.result.isCorrect && props.item.result.score > 0);
 const resultClass = computed(() => {
-  if (!props.item.result) return '';
+  if (!props.item.result || props.item.manual) return '';
   if (props.item.result.isCorrect) return 'is-correct';
   return partial.value ? 'is-partial' : 'is-wrong';
 });
 
-function emitAnswer(answer, typing = false) {
-  emit('answer', { position: props.item.position, answer, typing });
+/** Tự luận: ảnh bài làm đã lưu (`item.files`) + ảnh đang tải lên. */
+const picker = ref(null);
+const camera = ref(null);
+const uploading = ref([]);
+const files = computed(() => [...(props.item.files ?? []), ...uploading.value]);
+
+/**
+ * `fileViews`: danh sách `{ file, annotated }` mới (để trang làm bài hiện ngay ảnh vừa tải lên).
+ */
+function emitAnswer(answer, typing = false, fileViews = null) {
+  emit('answer', { position: props.item.position, answer, typing, fileViews });
+}
+
+async function onFiles(e) {
+  const picked = [...e.target.files];
+  e.target.value = '';
+  const room = 10 - files.value.length;
+  if (picked.length > room) message.warning(`Mỗi câu nộp tối đa 10 file — chỉ lấy ${Math.max(room, 0)} file đầu.`);
+  for (const file of picked.slice(0, Math.max(room, 0))) {
+    const id = `tmp-${Math.random()}`;
+    uploading.value.push({ id, name: file.name, url: '', isImage: false, progress: 0 });
+    // Bản reactive trong mảng (đối tượng gốc không cập nhật giao diện)
+    const entry = uploading.value.find((u) => u.id === id);
+    try {
+      const saved = await uploadFile(file, 'homework', { onProgress: (p) => (entry.progress = p) });
+      const next = [...(props.item.files ?? []), { file: saved, annotated: null }];
+      emitAnswer({ files: next.map((f) => f.file.id) }, false, next);
+    } catch (err) {
+      message.error(`${file.name}: ${err.message}`);
+    } finally {
+      uploading.value = uploading.value.filter((u) => u.id !== id);
+    }
+  }
+}
+
+function removeFile(i) {
+  const next = (props.item.files ?? []).filter((_, j) => j !== i);
+  emitAnswer({ files: next.map((f) => f.file.id) }, false, next);
 }
 
 function toggle(id, checked) {
@@ -216,5 +305,36 @@ function optionClass(id) {
 .q__explain {
   border-top: 1px dashed var(--hui-border, #d9d9d9);
   padding-top: 8px;
+}
+.q__essay {
+  display: grid;
+  gap: 8px;
+}
+.q__essay textarea {
+  width: 100%;
+  font: inherit;
+}
+.q__essay-text {
+  padding: 8px 10px;
+  border-radius: var(--hui-radius-md, 8px);
+  background: var(--hui-bg-subtle, #f6f7f9);
+}
+.q__grading {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--hui-radius-md, 8px);
+  background: color-mix(in srgb, var(--hui-primary, #1677ff) 6%, transparent);
+}
+.q__rubric {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.q__rubric li {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
 }
 </style>

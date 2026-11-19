@@ -424,6 +424,71 @@ bằng khách; học sinh và khách dùng chung đường nhận slide).
 có, chỉ cần nút); ghi chú của giáo viên cho từng slide (presenter notes); đồ thị trong Markdown tự chọn khung theo đồ thị
 (hiện khung mặc định có thể cắt mất đỉnh parabol — viết `x: -3 .. 5` / khung trong khối `plot` để chỉnh).
 
+## Đợt 9 — Đề & chấm, không dùng AI (bắt đầu 2026-11-19)
+
+> Theo lộ trình `analyst.md` mục 9.3. Trắc nghiệm / đúng sai / trả lời ngắn chấm bằng thuật toán; tự luận có hướng dẫn
+> chấm + lời giải mẫu, giáo viên chấm trên ảnh bài làm. **Câu chùm** và **câu hỏi có tham số** chuyển sang đợt sau: ít
+> gặp ở môn Toán (ưu tiên hiện tại), cần đổi cách rút / trộn câu theo khối nên tách riêng.
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M38** | **Câu tự luận + hướng dẫn chấm theo bước**: dạng câu `essay`, các bước chấm (nội dung + điểm, kiểu "Tính Δ … 0,25 đ"), lời giải mẫu. Điểm riêng cho từng câu cố định trong đề (mặc định câu tự luận = tổng điểm các bước). **Trả lời ngắn nâng cao**: sai số cho phép (`|x − đáp án| ≤ sai số`); so **biểu thức tương đương** (`2(x+1)` = `2x + 2`, `x^2-1` = `(x-1)(x+1)`) bằng bộ đọc biểu thức viết bằng Rust ở server, thử ở nhiều giá trị của biến | ✅ Xong (2026-11-20) |
+| **M39** | **Chấm tự luận bằng ảnh**: học sinh gõ bài hoặc chụp / chọn ảnh bài làm cho từng câu tự luận; nộp xong bài ở trạng thái "chờ chấm". Giáo viên (và trợ giảng của lớp) mở trang chấm: ảnh bài làm (vẽ nhận xét lên ảnh như bài tập), lời giải mẫu + từng bước chấm bên cạnh, chọn điểm từng bước, nhận xét; lưu rồi sang bài kế. **Nhận xét mẫu** dùng chung cho chấm đề và chấm bài tập. Chấm xong → điểm cập nhật, học sinh nhận thông báo, xem điểm từng bước + ảnh đã vẽ | ✅ Xong (2026-11-20) |
+| **M40** | **Trộn mã đề + xuất Word**: tạo N mã đề (101, 102, …) từ một đề — mỗi mã rút câu theo ma trận, trộn câu trong phần và trộn phương án; lưu lại để in / chấm sau (phiếu tô ở đợt 12). Xuất Word tất cả mã đề (tiêu đề kiểu THPT, "Họ, tên thí sinh … Số báo danh …", PHẦN I / II / III, phương án xếp 4 / 2 / 1 cột theo độ dài), bảng đáp án (câu × mã đề), trang in | ✅ Xong (2026-11-20) |
+| **M41** | **Bộ đề + giao nhanh**: gom đề thành bộ ("20 đề ôn thi vào 10"); **giao nhanh** đề / bài tập cho lớp, nhóm hoặc từng học sinh với hạn làm — thêm thẳng vào lộ trình đã xuất bản (không xuất bản kèm bản nháp đang sửa dở), học sinh nhận thông báo. Bước đề có hạn làm: quá hạn không bắt đầu làm được | ✅ Xong (2026-11-20) |
+
+### Thiết kế đợt 9
+
+Migration `20261120000001_essay_papers_sets.sql`:
+- `questions.kind` thêm `essay`. Nội dung phiên bản (`question_versions.body`) thêm `rubric: [{id, content, points}]`,
+  `tolerance`, `matchMode` (`auto` | `expression`) — bản cũ đọc ra giá trị mặc định, không cần đổi dữ liệu.
+- `exam_section_questions.points` (NULL = điểm mỗi câu của phần).
+- `attempt_items`: `manual` (câu chấm tay), `marks` (điểm từng bước), `feedback`, `annotations` (`[{fileId, annotatedFileId}]`),
+  `graded_by`, `graded_at`. Câu trả lời (`answer`) thêm `files` (ảnh / PDF bài làm, mục đích `homework`).
+- `comment_snippets` (nhận xét mẫu của giáo viên), `exam_papers` (mã đề: thứ tự câu + phương án đã trộn của từng mã),
+  `exam_sets` + `exam_set_items` (bộ đề).
+
+| Chủ đề | Quyết định |
+|---|---|
+| Điểm câu tự luận | Điểm câu trong đề = điểm riêng của câu (nếu đặt) / tổng điểm các bước chấm (câu tự luận cố định) / điểm mỗi câu của phần. Điểm chấm = điểm câu × (tổng điểm các bước đạt / tổng điểm các bước); câu không có bước chấm thì giáo viên nhập thẳng điểm |
+| Biểu thức tương đương | Chấm ở server (học sinh không sửa được kết quả). Bộ đọc biểu thức riêng bằng Rust (giống cách viết của `hui-plot`: nhân ngầm `2x`, dấu phẩy thập phân, `^`, `√`, `sqrt`, `sin`…, `π`), so hai biểu thức ở 8 bộ giá trị ngẫu nhiên của các biến; có dấu `=` thì so `vế trái − vế phải` (cho phép đổi dấu) |
+| Bài chờ chấm | Nộp bài → câu trắc nghiệm chấm ngay, câu tự luận 0 điểm "chờ chấm"; tổng điểm cập nhật mỗi lần giáo viên lưu một câu. Học sinh thấy "Đang chờ giáo viên chấm n câu" |
+| Mã đề lưu lại | Mỗi mã lưu thứ tự câu, phiên bản câu và thứ tự phương án → in lại / xuất lại vẫn đúng, đợt 12 chấm phiếu tô theo đúng mã. Tạo lại bộ mã đề thì thay bộ cũ |
+| Giao nhanh | Không gọi "xuất bản lộ trình" (sẽ xuất bản luôn phần giáo viên đang sửa dở): thêm bước vào bản nháp **và** tạo phiên bản xuất bản mới = bản đã xuất bản gần nhất + bước mới |
+| Hạn làm của bước đề | Quá hạn không bắt đầu lượt mới (`STEP_OVERDUE`); lượt đang làm hết giờ đúng hạn (giờ nộp = sớm nhất của thời gian làm bài / giờ đóng đề / hạn làm). Bài tập giữ cách cũ: nộp muộn vẫn nhận, đánh dấu muộn |
+| Nhập Word / Excel | Câu tự luận nhập được (phần "TỰ LUẬN" của đề Word, cột loại câu "Tự luận" trong Excel): nội dung + lời giải; các ý a) b) … giữ trong nội dung câu. Hướng dẫn chấm theo bước thêm sau ở trang sửa câu |
+
+### Kết quả đợt 9 (2026-11-20)
+
+| Phần | Mã |
+|---|---|
+| Backend | `questions/expr.rs` (bộ đọc biểu thức + so tương đương, không `eval`), `questions` (dạng `essay`, `rubric` / `tolerance` / `matchMode`, `grading::{matches_with, manual_score}`, nhập Word / Excel câu tự luận), `exams` (điểm riêng từng câu, `plan_items` dùng chung cho lượt làm và mã đề, câu chấm tay, `grade_item`, `grading_queue`, `generate_papers` / `papers`, `sets.rs` bộ đề, hạn làm trong `AttemptContext`), module mới `snippets` (nhận xét mẫu), `classes::path::quick_assign`, thông báo `attempt_graded` / `work_assigned` |
+| Frontend | `QuestionEditorModal` (bước chấm, sai số, cách so đáp án), `QuestionView` (gõ bài / chụp ảnh câu tự luận, điểm từng bước + nhận xét), `AttemptPage` (chờ chấm, nút chấm), `ExamEditorPage` (điểm riêng từng câu, chưa chấm, Trộn mã / Giao nhanh), trang mới `GradingQueuePage`, `GradeAttemptPage`, `ExamPapersPage`, `ExamSetsPage`; component `CommentSnippets`, `QuickAssignModal`; `utils/examPaperRender.js`; `docx/fromDom.js` (ngắt trang, bảng không viền, đoạn căn giữa); `PathEditor` (hạn làm cho bước đề) |
+
+| API | Mô tả |
+|---|---|
+| `GET /api/teaching/grading` | Bài đã nộp còn câu tự luận chưa chấm (đề của mình + lớp làm trợ giảng), bài nộp trước lên trước |
+| `PUT /api/teaching/attempts/{id}/items/{position}/grade` | Chấm một câu tự luận: `{ marks: {stepId: điểm}, score?, feedback, annotations: [{fileId, annotatedFileId}] }` — giáo viên chủ đề hoặc trợ giảng của lớp; chấm xong câu cuối thì báo học sinh |
+| `GET\|POST /api/teaching/comment-snippets` · `DELETE …/{id}` | Nhận xét mẫu (tối đa 100 / giáo viên) |
+| `GET\|POST /api/teaching/exams/{id}/papers` | Xem / tạo lại bộ mã đề `{ count: 1–24, firstCode: 101 }` (kèm nội dung câu + đáp án để in / xuất Word) |
+| `GET\|POST /api/teaching/exam-sets` · `GET\|PUT\|DELETE …/{id}` | Bộ đề (danh sách đề có thứ tự, cùng môn) |
+| `POST /api/teaching/classes/{id}/quick-assign` | Giao nhanh `{ kind: exam\|homework, examId\|assignmentId, title, dueAt, groupIds, userIds }` → `{ stepId, version, assigned }` |
+| `PUT /api/attempts/{id}/items/{position}` | (đổi) câu tự luận nhận `{ text, files: [fileId] }` — ảnh / PDF mục đích `homework` của chính học sinh, tối đa 10 |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 85 / 85 đạt (1 bỏ qua: test Garage thật) — thêm 7: biểu thức tương đương (đa thức, căn, trị tuyệt đối, lượng giác, phương trình tỉ lệ, khác tập xác định, thứ tự phép tính, chuỗi lồng quá sâu), sai số + biểu thức trong chấm trả lời ngắn, điểm tự luận theo bước (quy đổi thang, kẹp điểm, không có bước), nhập Excel "Tự luận" |
+| Backend integration test | 107 / 107 đạt — thêm 6: câu tự luận + trả lời ngắn nâng cao (bước chấm giữ ID khi sửa, lỗi kiểm tra, điểm riêng từng câu, chấm tự động biểu thức / sai số, tự luận chờ chấm); học sinh nộp ảnh → giáo viên / trợ giảng chấm theo bước (quyền, bước lạ, quá điểm, ảnh vẽ không thuộc bài, thông báo một lần, chấm lại, "chấm lại" ở ngân hàng không xóa điểm tay, đề không cho xem đáp án vẫn thấy nhận xét); nhận xét mẫu; trộn mã đề (4 mã khác nhau cùng bộ câu, đánh số lại từng phần, tạo lại thay bộ cũ, quyền); bộ đề; giao nhanh (chỉ nhóm được giao thấy, bản nháp không bị xuất bản theo, hạn làm chặn lượt mới, giao bài tập cả lớp, các lỗi) |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 69 / 69 đạt (thêm: điểm câu trong đề / tổng bước / câu tự luận đã làm; mã đề: xếp phương án 4 / 2 / 1 cột, ký hiệu đáp án, gom phần, đầu đề + mã đề + HẾT, ngắt trang + bảng không viền trong Word, bảng đáp án câu × mã + hướng dẫn chấm); `npm run build` đạt |
+| Trình duyệt | **Soạn câu tự luận** qua hộp thoại (3 bước chấm, tổng 1 điểm). **Học sinh** (`hs.thu`): đề 2 câu / 3 điểm (câu tự luận đặt 2 điểm) → trả lời ngắn gõ `x·x` được chấm đúng (biểu thức tương đương `x^2`), câu tự luận gõ bài + tải ảnh bài làm → nộp: "điểm tạm 1/3, chờ chấm". **Giáo viên**: trang "Chấm tự luận" → chọn điểm từng bước (xem trước 1/2), lưu nhận xét mẫu, vẽ nhận xét lên ảnh, lưu → 2/3; học sinh nhận thông báo "đã chấm xong", thấy điểm từng bước + nhận xét + lời giải. **Mã đề**: tạo 4 mã → xem từng mã / tất cả / đáp án; file Word dựng trong trình duyệt hợp lệ (4 mã, 3 ngắt trang, 8 công thức OMML). **Bộ đề** tạo qua giao diện → **Giao nhanh** đề cho lớp với hạn làm → lộ trình phiên bản mới có bước đề kèm hạn. Sửa khi thử: ảnh đang tải lên không biến mất khỏi danh sách (so sánh proxy của Vue), hướng dẫn chấm trong bảng đáp án ghi rõ "quy về … điểm" khi tổng bước khác điểm câu |
+
+**Chưa thử được:** vẽ nhận xét khi giáo viên mở trang ở địa chỉ khác `APP_BASE_URL` (dev: `localhost` thay vì `127.0.0.1`) — ảnh khác origin nên trình duyệt không cho xuất canvas; production dùng một tên miền nên không gặp. Mở file Word mã đề bằng Microsoft Word thật. Nhắc hạn làm cho bước đề (mới nhắc hạn nộp bài tập).
+
+**Dữ liệu thử thêm trong DB dev:** của `gv.lan` — câu tự luận "Giải phương trình x² − 5x + 6 = 0" (3 bước chấm), câu trả lời ngắn biểu thức, đề "Kiểm tra 15 phút — phương trình bậc hai (tự luận)" (4 mã đề 101–104), bộ đề "Bộ đề ôn tập chương phương trình bậc hai", lớp "Lớp thử chấm tự luận (đợt 9)" (`hs.thu`, bài đã chấm 2/3, thêm 1 bước giao nhanh có hạn), 1 nhận xét mẫu.
+
+**Để sau:** câu chùm (một đoạn dẫn nhiều câu) và câu hỏi có tham số; nhập hướng dẫn chấm theo bước từ Word; nhắc hạn làm bước đề; gia hạn riêng cho từng học sinh; nhập điểm bài làm trên giấy; rubric theo tiêu chí cho bài tập về nhà.
+
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)
 
 Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".

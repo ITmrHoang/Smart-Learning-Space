@@ -2,23 +2,27 @@
 
 use std::collections::HashMap;
 
-use chrono::{TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use uuid::Uuid;
 use validator::Validate;
 
 use super::{
     dto::{
-        AttemptQuery, AttemptSummary, AttemptView, ExamInput, ExamQuery, ExamResponse, ExamSummary, ItemResult,
-        ItemView, RuleResponse, SectionResponse, StudentInfo, ViewOption,
+        AnswerFile, AttemptQuery, AttemptSummary, AttemptView, ExamInput, ExamQuery, ExamResponse, ExamSummary,
+        GradeItemInput, ItemGrading, ItemResult, ItemView, PaperOption, PaperQuestion, PaperView, PapersInput,
+        PapersResponse, QueueItem, RuleResponse, SectionResponse, StudentInfo, ViewOption,
     },
-    model::{AttemptRow, BestScoreRow, ExamKind, ExamRef, ExamRow, ShowAnswers},
-    repository::{self as repo, ExamFields, ExamFilter, NewAttempt, NewItem, NewRule, NewSection},
+    model::{AttemptRow, BestScoreRow, ExamKind, ExamRef, ExamRow, PaperItem, ShowAnswers},
+    repository::{self as repo, ExamFields, ExamFilter, ManualGrade, NewAttempt, NewItem, NewRule, NewSection},
 };
 use crate::{
     context::AppContext,
     error::{AppError, AppResult},
     modules::{
         catalog::service as catalog,
+        classes::service as classes,
+        files::{self, Purpose},
+        notifications::{self, NotificationKind},
         questions::{
             dto::{QuestionResponse, RegradeResponse},
             grading::{self, Answer, Scoring, round2},
@@ -34,6 +38,9 @@ use crate::{
 
 /// Cho phép gửi đáp án trễ vài giây so với hạn (mạng chậm).
 const DEADLINE_GRACE_SECS: i64 = 15;
+/// Câu tự luận: bài gõ tối đa bao nhiêu ký tự, nộp tối đa bao nhiêu ảnh / file.
+const MAX_ESSAY_TEXT: usize = 10_000;
+const MAX_ESSAY_FILES: usize = 10;
 
 fn not_found() -> AppError {
     AppError::not_found("Không tìm thấy đề.")
@@ -83,6 +90,14 @@ async fn validate_input(ctx: &AppContext, actor: &Actor, input: &ExamInput) -> A
     for (i, s) in input.sections.iter().enumerate() {
         if s.question_ids.is_empty() && s.rules.is_empty() {
             return Err(AppError::field("sections", format!("Phần {} chưa có câu hỏi nào.", i + 1)));
+        }
+        for (id, p) in &s.question_points {
+            if !s.question_ids.contains(id) || !(0.0..=100.0).contains(p) {
+                return Err(AppError::field(
+                    "sections",
+                    format!("Phần {}: điểm riêng của câu phải từ 0 đến 100 và câu phải có trong phần.", i + 1),
+                ));
+            }
         }
         for id in &s.question_ids {
             if all_ids.contains(id) {
@@ -136,6 +151,7 @@ fn new_sections(input: &ExamInput) -> Vec<NewSection<'_>> {
             scoring: s.scoring.as_str(),
             points_per_question: round2(s.points_per_question),
             question_ids: &s.question_ids,
+            question_points: s.question_ids.iter().map(|id| s.question_points.get(id).map(|p| round2(*p))).collect(),
             rules: s
                 .rules
                 .iter()
@@ -149,6 +165,15 @@ fn new_sections(input: &ExamInput) -> Vec<NewSection<'_>> {
                 .collect(),
         })
         .collect()
+}
+
+/// Điểm của câu cố định trong đề: điểm riêng đã đặt → tổng điểm các bước chấm (câu tự luận) → điểm mỗi câu của phần.
+pub fn fixed_points(section_points: f64, kind: &str, body: &QuestionBody, custom: Option<f64>) -> f64 {
+    if let Some(p) = custom {
+        return p;
+    }
+    let total = body.rubric_total();
+    if kind == QuestionKind::Essay.as_str() && total > 0.0 { round2(total) } else { section_points }
 }
 
 async fn build_response(ctx: &AppContext, exam: ExamRow) -> AppResult<ExamResponse> {
@@ -165,12 +190,20 @@ async fn build_response(ctx: &AppContext, exam: ExamRow) -> AppResult<ExamRespon
     let (mut question_count, mut max_score) = (0i64, 0f64);
     for (si, s) in sections.into_iter().enumerate() {
         let mut qs: Vec<QuestionResponse> = Vec::new();
+        let mut question_points = HashMap::new();
         for f in fixed.iter().filter(|f| f.section_id == s.id) {
+            if let Some(p) = f.points {
+                question_points.insert(f.question_id, p);
+            }
             match by_id.remove(&f.question_id) {
                 Some(q) if q.archived_at.is_some() => {
                     warnings.push(format!("Phần {}: có câu hỏi đã bị ẩn khỏi ngân hàng, sẽ không xuất hiện.", si + 1));
                 }
-                Some(q) => qs.push(q.into()),
+                Some(q) => {
+                    max_score += fixed_points(s.points_per_question, &q.kind, &q.body.0, f.points);
+                    question_count += 1;
+                    qs.push(q.into());
+                }
                 None => {}
             }
         }
@@ -202,9 +235,9 @@ async fn build_response(ctx: &AppContext, exam: ExamRow) -> AppResult<ExamRespon
                 available,
             });
         }
-        let n = qs.len() as i64 + rs.iter().map(|r| i64::from(r.count)).sum::<i64>();
-        question_count += n;
-        max_score += n as f64 * s.points_per_question;
+        let drawn = rs.iter().map(|r| i64::from(r.count)).sum::<i64>();
+        question_count += drawn;
+        max_score += drawn as f64 * s.points_per_question;
         out.push(SectionResponse {
             id: s.id,
             title: s.title,
@@ -212,6 +245,7 @@ async fn build_response(ctx: &AppContext, exam: ExamRow) -> AppResult<ExamRespon
             points_per_question: s.points_per_question,
             questions: qs,
             rules: rs,
+            question_points,
         });
     }
     Ok(ExamResponse {
@@ -313,6 +347,9 @@ pub struct AttemptContext {
     pub class_id: Option<Uuid>,
     pub step_id: Option<Uuid>,
     pub preview: bool,
+    /// Hạn làm của bước đề trong lớp (giao nhanh / lộ trình): quá hạn không bắt đầu lượt mới, lượt đang làm hết giờ
+    /// đúng hạn.
+    pub due_at: Option<DateTime<Utc>>,
 }
 
 /// Tạo lượt làm mới (hoặc trả lượt đang làm dở). Gọi **sau khi** đã kiểm tra quyền vào đề.
@@ -344,6 +381,14 @@ pub async fn start_attempt(ctx: &AppContext, user_id: Uuid, exam_id: Uuid, c: At
         if exam.closes_at.is_some_and(|close| now >= close) {
             return Err(AppError::conflict("EXAM_CLOSED", "Đề đã đóng."));
         }
+        if let Some(due) = c.due_at
+            && now >= due
+        {
+            return Err(AppError::conflict(
+                "STEP_OVERDUE",
+                format!("Đã quá hạn làm bài ({}).", crate::modules::sessions::time::format_vn(due)),
+            ));
+        }
         if let Some(max) = exam.max_attempts
             && repo::count_attempts(&ctx.db, user_id, exam_id, c.class_id).await? >= i64::from(max)
         {
@@ -351,14 +396,66 @@ pub async fn start_attempt(ctx: &AppContext, user_id: Uuid, exam_id: Uuid, c: At
         }
     }
 
-    // Rút + trộn câu theo từng phần.
-    let sections = repo::sections(&ctx.db, exam_id).await?;
+    let planned = plan_items(ctx, &exam).await?;
+    let max_score: f64 = planned.iter().map(|p| p.points).sum();
+    let items: Vec<NewItem> = planned
+        .iter()
+        .enumerate()
+        .map(|(i, p)| NewItem {
+            position: i as i32,
+            section_position: p.section_position,
+            section_title: &p.section_title,
+            scoring: &p.scoring,
+            points: p.points,
+            question_id: p.question_id,
+            question_version_id: p.version_id,
+            option_order: p.option_order.clone(),
+            manual: p.manual,
+        })
+        .collect();
+
+    let mut deadline = exam.time_limit_minutes.map(|m| now + TimeDelta::minutes(i64::from(m)));
+    if !c.preview
+        && let Some(close) = exam.closes_at
+    {
+        deadline = Some(deadline.map_or(close, |d| d.min(close)));
+    }
+    if !c.preview
+        && let Some(due) = c.due_at
+    {
+        deadline = Some(deadline.map_or(due, |d| d.min(due)));
+    }
+    let mut tx = ctx.db.begin().await?;
+    let id = repo::insert_attempt(
+        &mut tx,
+        &NewAttempt {
+            exam_id,
+            user_id,
+            class_id: c.class_id,
+            step_id: c.step_id,
+            is_preview: c.preview,
+            deadline_at: deadline,
+            max_score: round2(max_score),
+        },
+        &items,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(id)
+}
+
+/// Rút câu theo ma trận + trộn câu trong từng phần + trộn phương án (theo cài đặt của đề) cho một lượt làm / một
+/// mã đề. Câu cố định đã bị ẩn khỏi ngân hàng thì bỏ qua.
+pub async fn plan_items(ctx: &AppContext, exam: &ExamRow) -> AppResult<Vec<PaperItem>> {
+    let sections = repo::sections(&ctx.db, exam.id).await?;
     let section_ids: Vec<Uuid> = sections.iter().map(|s| s.id).collect();
     let fixed = repo::section_questions(&ctx.db, &section_ids).await?;
     let rules = repo::rules(&ctx.db, &section_ids).await?;
     let fixed_ids: Vec<Uuid> = fixed.iter().map(|f| f.question_id).collect();
     let fixed_rows: HashMap<Uuid, bool> =
         questions::find_many(ctx, &fixed_ids).await?.into_iter().map(|q| (q.id, q.archived_at.is_none())).collect();
+    // Câu cố định → điểm riêng (câu rút theo ma trận không có trong đây: điểm mỗi câu của phần).
+    let custom_points: HashMap<Uuid, Option<f64>> = fixed.iter().map(|f| (f.question_id, f.points)).collect();
 
     let mut chosen: Vec<Uuid> = Vec::new();
     let mut plan: Vec<(usize, Vec<Uuid>)> = Vec::new();
@@ -396,7 +493,6 @@ pub async fn start_attempt(ctx: &AppContext, user_id: Uuid, exam_id: Uuid, c: At
     let rows: HashMap<Uuid, _> = questions::find_many(ctx, &all).await?.into_iter().map(|q| (q.id, q)).collect();
 
     let mut items = Vec::with_capacity(all.len());
-    let mut max_score = 0.0;
     for (si, ids) in &plan {
         let s = &sections[*si];
         for id in ids {
@@ -408,50 +504,35 @@ pub async fn start_attempt(ctx: &AppContext, user_id: Uuid, exam_id: Uuid, c: At
             if choice && exam.shuffle_options && body.shuffle_options {
                 shuffle(&mut order);
             }
-            max_score += s.points_per_question;
-            items.push(NewItem {
-                position: items.len() as i32,
+            let points = match custom_points.get(&q.id) {
+                Some(custom) => fixed_points(s.points_per_question, &q.kind, body, *custom),
+                None => s.points_per_question,
+            };
+            items.push(PaperItem {
                 section_position: s.position,
-                section_title: &s.title,
-                scoring: &s.scoring,
-                points: s.points_per_question,
+                section_title: s.title.clone(),
+                scoring: s.scoring.clone(),
+                points,
                 question_id: q.id,
-                question_version_id: version_id,
+                version_id,
                 option_order: order,
+                manual: q.kind == QuestionKind::Essay.as_str(),
             });
         }
     }
-
-    let mut deadline = exam.time_limit_minutes.map(|m| now + TimeDelta::minutes(i64::from(m)));
-    if !c.preview
-        && let Some(close) = exam.closes_at
-    {
-        deadline = Some(deadline.map_or(close, |d| d.min(close)));
-    }
-    let mut tx = ctx.db.begin().await?;
-    let id = repo::insert_attempt(
-        &mut tx,
-        &NewAttempt {
-            exam_id,
-            user_id,
-            class_id: c.class_id,
-            step_id: c.step_id,
-            is_preview: c.preview,
-            deadline_at: deadline,
-            max_score: round2(max_score),
-        },
-        &items,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(id)
+    Ok(items)
 }
 
 /// Giáo viên làm thử đề của mình.
 pub async fn preview(ctx: &AppContext, actor: &Actor, exam_id: Uuid) -> AppResult<AttemptView> {
     load_own_exam(ctx, actor, exam_id).await?;
-    let id =
-        start_attempt(ctx, actor.id, exam_id, AttemptContext { class_id: None, step_id: None, preview: true }).await?;
+    let id = start_attempt(
+        ctx,
+        actor.id,
+        exam_id,
+        AttemptContext { class_id: None, step_id: None, preview: true, due_at: None },
+    )
+    .await?;
     get_attempt(ctx, actor, id).await
 }
 
@@ -464,10 +545,21 @@ async fn load_attempt(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(A
     if attempt.user_id == actor.id {
         return Ok((attempt, exam, false));
     }
-    if exam.owner_id == actor.id {
+    if can_grade(ctx, actor, &exam, &attempt).await? {
         return Ok((attempt, exam, true));
     }
     Err(attempt_not_found())
+}
+
+/// Giáo viên chủ đề, hoặc trợ giảng của lớp học có lượt làm này: xem bài, chấm câu tự luận.
+async fn can_grade(ctx: &AppContext, actor: &Actor, exam: &ExamRow, attempt: &AttemptRow) -> AppResult<bool> {
+    if exam.owner_id == actor.id {
+        return Ok(true);
+    }
+    match attempt.class_id {
+        Some(class_id) => classes::is_assistant(&ctx.db, class_id, actor.id).await,
+        None => Ok(false),
+    }
 }
 
 fn is_overdue(a: &AttemptRow) -> bool {
@@ -498,6 +590,11 @@ async fn submit_internal(ctx: &AppContext, attempt_id: Uuid) -> AppResult<()> {
     let mut tx = ctx.db.begin().await?;
     let mut total = 0.0;
     for it in &items {
+        // Câu tự luận: giữ 0 điểm "chờ chấm" cho giáo viên.
+        if it.manual {
+            total += it.score;
+            continue;
+        }
         let Some((kind, body)) = versions.get(&it.question_version_id) else { continue };
         let scoring = Scoring::parse(&it.scoring).unwrap_or(Scoring::PerQuestion);
         let g = grading::grade(*kind, body, it.answer.as_ref().map(|a| &a.0), scoring, it.points);
@@ -545,6 +642,18 @@ async fn build_view(
     } else {
         None
     };
+    // Ảnh bài làm câu tự luận + ảnh giáo viên đã vẽ nhận xét (link có chữ ký).
+    let mut file_ids: Vec<Uuid> = Vec::new();
+    for it in &items {
+        if let Some(a) = &it.answer {
+            file_ids.extend(&a.0.files);
+        }
+        if let Some(an) = &it.annotations {
+            file_ids.extend(an.0.iter().map(|x| x.annotated_file_id));
+        }
+    }
+    let file_views = if file_ids.is_empty() { HashMap::new() } else { files::views(ctx, &file_ids).await? };
+    let mut pending = 0;
     let mut views = Vec::with_capacity(items.len());
     for it in items {
         let Some((kind, body)) = versions.get(&it.question_version_id) else { continue };
@@ -554,6 +663,34 @@ async fn build_view(
             .filter_map(|id| body.options.iter().find(|o| o.id == *id))
             .map(|o| ViewOption { id: o.id, content: o.content.clone() })
             .collect();
+        let answer = it.answer.map(|a| a.0);
+        let annotations = it.annotations.map(|a| a.0).unwrap_or_default();
+        let answer_files = answer
+            .as_ref()
+            .map(|a| {
+                a.files
+                    .iter()
+                    .filter_map(|f| {
+                        let annotated = annotations
+                            .iter()
+                            .find(|x| x.file_id == *f)
+                            .and_then(|x| file_views.get(&x.annotated_file_id).cloned());
+                        Some(AnswerFile { file: file_views.get(f)?.clone(), annotated })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let item_pending = it.manual && it.graded_at.is_none();
+        if submitted && item_pending {
+            pending += 1;
+        }
+        let grading = (it.manual && submitted).then(|| ItemGrading {
+            pending: item_pending,
+            score: (!item_pending).then_some(it.score),
+            marks: it.marks.map(|m| m.0).unwrap_or_default(),
+            feedback: it.feedback,
+            graded_at: it.graded_at,
+        });
         let show_result = reveal || it.checked;
         views.push(ItemView {
             position: it.position,
@@ -563,7 +700,7 @@ async fn build_view(
             kind: kind.as_str().to_string(),
             content: body.content.clone(),
             options,
-            answer: it.answer.map(|a| a.0),
+            answer,
             checked: it.checked,
             result: show_result.then(|| ItemResult {
                 is_correct: it.is_correct.unwrap_or(false),
@@ -571,7 +708,11 @@ async fn build_view(
                 correct: body.correct.clone(),
                 accepted: body.accepted.clone(),
                 explanation: body.explanation.clone(),
+                rubric: body.rubric.clone(),
             }),
+            manual: it.manual,
+            files: answer_files,
+            grading,
         });
     }
     Ok(AttemptView {
@@ -592,6 +733,8 @@ async fn build_view(
         max_score: attempt.max_score,
         reveal,
         student,
+        pending,
+        can_grade: teacher_view && submitted,
         items: views,
     })
 }
@@ -623,12 +766,27 @@ pub async fn save_answer(ctx: &AppContext, actor: &Actor, id: Uuid, position: i3
     let (kind, _) =
         versions.get(&item.question_version_id).ok_or_else(|| AppError::internal("thiếu phiên bản câu hỏi"))?;
     let invalid = || AppError::bad_request("INVALID_ANSWER", "Câu trả lời không hợp lệ.");
+    let essay = kind.is_manual();
+    let max_text = if essay { MAX_ESSAY_TEXT } else { 500 };
     if answer.selected.iter().any(|s| !item.option_order.contains(s))
         || answer.truth.keys().any(|k| !item.option_order.contains(k))
-        || answer.text.as_deref().is_some_and(|t| t.chars().count() > 500)
+        || answer.text.as_deref().is_some_and(|t| t.chars().count() > max_text)
         || (*kind == QuestionKind::Single && answer.selected.len() > 1)
+        || (!essay && !answer.files.is_empty())
     {
         return Err(invalid());
+    }
+    if essay && !answer.files.is_empty() {
+        let mut ids = answer.files.clone();
+        ids.sort();
+        ids.dedup();
+        if ids.len() != answer.files.len() || ids.len() > MAX_ESSAY_FILES {
+            return Err(AppError::bad_request(
+                "INVALID_ANSWER",
+                format!("Mỗi câu tự luận nộp tối đa {MAX_ESSAY_FILES} ảnh / file, không trùng nhau."),
+            ));
+        }
+        files::owned_ready(ctx, actor.id, &ids, Purpose::Homework).await?;
     }
     if !repo::save_answer(&ctx.db, attempt.id, position, &answer).await? {
         return Err(AppError::conflict("ITEM_LOCKED", "Câu này đã kiểm tra đáp án, không sửa được nữa."));
@@ -644,6 +802,9 @@ pub async fn check_item(ctx: &AppContext, actor: &Actor, id: Uuid, position: i32
     }
     let items = repo::items(&ctx.db, attempt.id).await?;
     let item = items.iter().find(|i| i.position == position).ok_or_else(|| AppError::not_found("Không có câu này."))?;
+    if item.manual {
+        return Err(AppError::bad_request("MANUAL_ITEM", "Câu tự luận do giáo viên chấm, không kiểm tra ngay được."));
+    }
     if !item.checked {
         let versions = versions_of(ctx, vec![item.question_version_id]).await?;
         let (kind, body) =
@@ -713,6 +874,10 @@ pub async fn regrade_question(
     body: &QuestionBody,
     version_id: Uuid,
 ) -> AppResult<RegradeResponse> {
+    // Câu tự luận giáo viên chấm tay: không chấm lại tự động (sẽ xóa điểm đã chấm).
+    if kind.is_manual() {
+        return Ok(RegradeResponse { regraded_attempts: 0, changed_attempts: 0 });
+    }
     let items = repo::submitted_items_for_question(&ctx.db, question_id).await?;
     let mut attempts: Vec<Uuid> = Vec::new();
     let mut changed: Vec<Uuid> = Vec::new();
@@ -731,4 +896,186 @@ pub async fn regrade_question(
     repo::recompute_scores(&mut *tx, &attempts).await?;
     tx.commit().await?;
     Ok(RegradeResponse { regraded_attempts: attempts.len() as i64, changed_attempts: changed.len() as i64 })
+}
+
+// ---------- Chấm tự luận (M39) ----------
+
+/// Giáo viên chủ đề / trợ giảng của lớp chấm một câu tự luận của bài đã nộp.
+pub async fn grade_item(
+    ctx: &AppContext,
+    actor: &Actor,
+    id: Uuid,
+    position: i32,
+    input: GradeItemInput,
+) -> AppResult<AttemptView> {
+    actor.require(Permission::TeachingManage)?;
+    input.validate()?;
+    let (attempt, exam, grader) = load_attempt(ctx, actor, id).await?;
+    if !grader {
+        return Err(attempt_not_found());
+    }
+    let attempt = finalize_if_overdue(ctx, attempt).await?;
+    if attempt.status != "submitted" {
+        return Err(AppError::conflict("ATTEMPT_NOT_SUBMITTED", "Học sinh chưa nộp bài."));
+    }
+    let items = repo::items(&ctx.db, attempt.id).await?;
+    let item = items.iter().find(|i| i.position == position).ok_or_else(|| AppError::not_found("Không có câu này."))?;
+    if !item.manual {
+        return Err(AppError::bad_request("NOT_MANUAL", "Câu này được chấm tự động."));
+    }
+    let versions = versions_of(ctx, vec![item.question_version_id]).await?;
+    let (_, body) =
+        versions.get(&item.question_version_id).ok_or_else(|| AppError::internal("thiếu phiên bản câu hỏi"))?;
+
+    let mut marks = input.marks.clone();
+    for (step, p) in marks.iter_mut() {
+        let Some(s) = body.rubric.iter().find(|s| s.id == *step) else {
+            return Err(AppError::field("marks", "Có bước chấm không thuộc câu này."));
+        };
+        if !(0.0..=s.points + 1e-9).contains(p) {
+            return Err(AppError::field("marks", format!("Mỗi bước chỉ cho từ 0 đến {} điểm.", s.points)));
+        }
+        *p = round2(*p);
+    }
+    if body.rubric.is_empty() && !input.score.is_some_and(|s| (0.0..=item.points + 1e-9).contains(&s)) {
+        return Err(AppError::field("score", format!("Nhập điểm từ 0 đến {}.", item.points)));
+    }
+    // Ảnh đã vẽ: ảnh gốc phải là ảnh bài làm của câu; ảnh vẽ mới phải do người chấm tải lên.
+    let answer_files = item.answer.as_ref().map(|a| a.0.files.clone()).unwrap_or_default();
+    if input.annotations.iter().any(|a| !answer_files.contains(&a.file_id)) {
+        return Err(AppError::field("annotations", "Ảnh không thuộc bài làm của câu này."));
+    }
+    let old: Vec<Uuid> =
+        item.annotations.as_ref().map(|a| a.0.iter().map(|x| x.annotated_file_id).collect()).unwrap_or_default();
+    let drawn: Vec<Uuid> = input.annotations.iter().map(|a| a.annotated_file_id).filter(|f| !old.contains(f)).collect();
+    if !drawn.is_empty() {
+        files::owned_ready(ctx, actor.id, &drawn, Purpose::Homework).await?;
+    }
+
+    let score = grading::manual_score(body, item.points, &marks, input.score);
+    let mut tx = ctx.db.begin().await?;
+    repo::set_manual_grade(
+        &mut *tx,
+        attempt.id,
+        position,
+        &ManualGrade {
+            marks: &marks,
+            feedback: input.feedback.trim(),
+            annotations: &input.annotations,
+            score,
+            is_correct: item.points > 0.0 && score >= item.points - 1e-9,
+            graded_by: actor.id,
+        },
+    )
+    .await?;
+    repo::recompute_scores(&mut *tx, &[attempt.id]).await?;
+    let pending = repo::pending_count(&mut *tx, attempt.id).await?;
+    tx.commit().await?;
+    // Vừa chấm xong câu cuối cùng còn chờ → báo học sinh (chấm lại sau đó không báo nữa).
+    if pending == 0 && item.graded_at.is_none() && !attempt.is_preview {
+        let link = format!("/bai-lam/{}", attempt.id);
+        notifications::notify(
+            &ctx.db,
+            &[attempt.user_id],
+            NotificationKind::AttemptGraded,
+            &format!("Bài \"{}\" đã chấm xong", exam.title),
+            "Giáo viên đã chấm phần tự luận. Mở bài để xem điểm và nhận xét.",
+            Some(&link),
+        )
+        .await?;
+    }
+    get_attempt(ctx, actor, id).await
+}
+
+/// Bài đã nộp còn câu tự luận chưa chấm (đề của mình + lớp mình làm trợ giảng), bài nộp trước lên trước.
+pub async fn grading_queue(ctx: &AppContext, actor: &Actor) -> AppResult<Vec<QueueItem>> {
+    actor.require(Permission::TeachingManage)?;
+    Ok(repo::grading_queue(&ctx.db, actor.id).await?.into_iter().map(Into::into).collect())
+}
+
+// ---------- Mã đề (M40) ----------
+
+/// Tạo `count` mã đề từ đề (mỗi mã rút + trộn riêng theo cài đặt của đề), thay bộ mã đề cũ.
+pub async fn generate_papers(
+    ctx: &AppContext,
+    actor: &Actor,
+    exam_id: Uuid,
+    input: PapersInput,
+) -> AppResult<PapersResponse> {
+    input.validate()?;
+    let exam = load_own_exam(ctx, actor, exam_id).await?;
+    let mut papers = Vec::with_capacity(input.count as usize);
+    for i in 0..input.count {
+        papers.push(((input.first_code + i).to_string(), plan_items(ctx, &exam).await?));
+    }
+    let mut tx = ctx.db.begin().await?;
+    repo::replace_papers(&mut tx, exam_id, &papers).await?;
+    tx.commit().await?;
+    papers_of(ctx, exam).await
+}
+
+/// Bộ mã đề đã tạo (kèm nội dung câu + đáp án) để in / xuất Word.
+pub async fn papers(ctx: &AppContext, actor: &Actor, exam_id: Uuid) -> AppResult<PapersResponse> {
+    let exam = load_own_exam(ctx, actor, exam_id).await?;
+    papers_of(ctx, exam).await
+}
+
+async fn papers_of(ctx: &AppContext, exam: ExamRow) -> AppResult<PapersResponse> {
+    let rows = repo::papers(&ctx.db, exam.id).await?;
+    let version_ids: Vec<Uuid> = rows.iter().flat_map(|r| r.items.0.iter().map(|i| i.version_id)).collect();
+    let versions = versions_of(ctx, version_ids).await?;
+    let created_at = rows.first().map(|r| r.created_at);
+    let max_score = rows.first().map_or(0.0, |r| round2(r.items.0.iter().map(|i| i.points).sum()));
+    let papers = rows
+        .into_iter()
+        .map(|r| {
+            let mut number = 0;
+            let mut section = None;
+            let items = r
+                .items
+                .0
+                .into_iter()
+                .filter_map(|it| {
+                    let (kind, body) = versions.get(&it.version_id)?;
+                    if section != Some(it.section_position) {
+                        section = Some(it.section_position);
+                        number = 0;
+                    }
+                    number += 1;
+                    let options = it
+                        .option_order
+                        .iter()
+                        .filter_map(|id| body.options.iter().find(|o| o.id == *id))
+                        .map(|o| PaperOption {
+                            id: o.id,
+                            content: o.content.clone(),
+                            correct: body.correct.contains(&o.id),
+                        })
+                        .collect();
+                    Some(PaperQuestion {
+                        number,
+                        section_position: it.section_position,
+                        section_title: it.section_title,
+                        points: it.points,
+                        kind: kind.as_str().to_string(),
+                        content: body.content.clone(),
+                        options,
+                        accepted: body.accepted.clone(),
+                        explanation: body.explanation.clone(),
+                        rubric: body.rubric.clone(),
+                    })
+                })
+                .collect();
+            PaperView { id: r.id, code: r.code, items }
+        })
+        .collect();
+    Ok(PapersResponse {
+        exam_id: exam.id,
+        title: exam.title,
+        subject_id: exam.subject_id,
+        time_limit_minutes: exam.time_limit_minutes,
+        max_score,
+        created_at,
+        papers,
+    })
 }

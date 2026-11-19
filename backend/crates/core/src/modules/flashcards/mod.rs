@@ -339,9 +339,16 @@ pub fn answer_text(kind: &str, body: &QuestionBody) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+        // Tự luận: các bước chấm làm dàn ý lời giải
+        "essay" => body.rubric.iter().map(|s| format!("- {}", s.content)).collect::<Vec<_>>().join("\n"),
         _ => format!("Đáp án: {}", body.accepted.join("; ")),
     };
-    if body.explanation.trim().is_empty() { answer } else { format!("{answer}\n\n{}", body.explanation.trim()) }
+    let explanation = body.explanation.trim();
+    match (answer.is_empty(), explanation.is_empty()) {
+        (_, true) => answer,
+        (true, false) => explanation.to_string(),
+        (false, false) => format!("{answer}\n\n{explanation}"),
+    }
 }
 
 /// Mặt trước: nội dung câu + các phương án (câu một / nhiều đáp án, đúng sai).
@@ -608,6 +615,9 @@ mod tests {
             accepted: accepted.iter().map(|s| (*s).to_string()).collect(),
             explanation: explanation.into(),
             shuffle_options: true,
+            rubric: vec![],
+            tolerance: None,
+            match_mode: Default::default(),
         }
     }
 

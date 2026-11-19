@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
@@ -79,6 +81,8 @@ pub struct SectionQuestionRow {
     pub section_id: Uuid,
     pub position: i32,
     pub question_id: Uuid,
+    /// Điểm riêng của câu (NULL = điểm mỗi câu của phần).
+    pub points: Option<f64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -135,6 +139,37 @@ pub struct AttemptItemRow {
     pub checked: bool,
     pub is_correct: Option<bool>,
     pub score: f64,
+    /// Câu tự luận (giáo viên chấm).
+    pub manual: bool,
+    pub marks: Option<Json<BTreeMap<Uuid, f64>>>,
+    pub feedback: String,
+    pub annotations: Option<Json<Vec<Annotation>>>,
+    pub graded_at: Option<DateTime<Utc>>,
+}
+
+/// Ảnh bài làm đã được giáo viên vẽ nhận xét (ảnh gốc giữ nguyên).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Annotation {
+    pub file_id: Uuid,
+    pub annotated_file_id: Uuid,
+}
+
+/// Bài chờ chấm (danh sách cho giáo viên / trợ giảng).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct QueueRow {
+    pub id: Uuid,
+    pub exam_id: Uuid,
+    pub exam_title: String,
+    pub class_id: Option<Uuid>,
+    pub class_title: Option<String>,
+    pub user_id: Uuid,
+    pub username: String,
+    pub full_name: String,
+    pub submitted_at: Option<DateTime<Utc>>,
+    pub score: f64,
+    pub max_score: f64,
+    pub pending: i64,
 }
 
 /// Một dòng trong danh sách lượt làm (giáo viên xem kết quả).
@@ -152,6 +187,8 @@ pub struct AttemptListRow {
     pub submitted_at: Option<DateTime<Utc>>,
     pub score: f64,
     pub max_score: f64,
+    /// Số câu tự luận chưa chấm.
+    pub pending: i64,
 }
 
 /// Điểm cao nhất của một học sinh với một đề trong một lớp học.
@@ -174,4 +211,29 @@ pub struct RegradeItemRow {
     pub points: f64,
     pub answer: Option<Json<Answer>>,
     pub score: f64,
+}
+
+/// Một câu đã rút + trộn của một lượt làm / một mã đề (cột `exam_papers.items`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaperItem {
+    pub section_position: i32,
+    pub section_title: String,
+    pub scoring: String,
+    pub points: f64,
+    pub question_id: Uuid,
+    pub version_id: Uuid,
+    /// Thứ tự phương án đã trộn.
+    pub option_order: Vec<Uuid>,
+    /// Câu tự luận.
+    pub manual: bool,
+}
+
+/// Một mã đề đã lưu (M40).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PaperRow {
+    pub id: Uuid,
+    pub code: String,
+    pub items: Json<Vec<PaperItem>>,
+    pub created_at: DateTime<Utc>,
 }

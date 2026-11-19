@@ -19,12 +19,22 @@
           <hui-button :loading="submitting" @hui-click="submit">Nộp bài</hui-button>
         </div>
         <div v-else class="score">
-          <span class="muted small">Điểm</span>
+          <span class="muted small">Điểm{{ view.pending ? ' (tạm tính)' : '' }}</span>
           <b>{{ formatScore(view.score) }} / {{ formatScore(view.maxScore) }}</b>
           <span class="muted small">Nộp lúc {{ formatDateTime(view.submittedAt) }}</span>
+          <RouterLink v-if="view.canGrade && view.items.some((i) => i.manual)" :to="{ name: 'teach-grade-attempt', params: { id: view.id } }">
+            <hui-button size="sm">{{ view.pending ? `Chấm tự luận (${view.pending} câu)` : 'Chấm lại tự luận' }}</hui-button>
+          </RouterLink>
         </div>
       </header>
 
+      <hui-alert
+        v-if="!inProgress && view.pending"
+        severity="warning"
+        :description="view.student
+          ? `Còn ${view.pending} câu tự luận chưa chấm. Điểm hiện tại chưa tính các câu này.`
+          : `Giáo viên đang chấm ${view.pending} câu tự luận. Điểm hiện tại chưa tính các câu này — bạn sẽ nhận thông báo khi chấm xong.`"
+      />
       <hui-alert
         v-if="!inProgress && !view.reveal"
         severity="info"
@@ -44,7 +54,7 @@
       <template v-for="(it, i) in view.items" :key="it.position">
         <h2 v-if="i === 0 || it.sectionPosition !== view.items[i - 1].sectionPosition" class="section-title">{{ it.sectionTitle }}</h2>
         <QuestionView :id="`cau-${i + 1}`" :item="it" :number="i + 1" :readonly="!inProgress || Boolean(view.student)" @answer="onAnswer">
-          <template v-if="view.canCheck && !it.checked" #actions>
+          <template v-if="view.canCheck && !it.checked && !it.manual" #actions>
             <div class="row">
               <hui-button size="sm" variant="outline" :loading="checking === it.position" :disabled="!isAnswered(it)" @hui-click="check(it)">Kiểm tra đáp án</hui-button>
               <span class="muted small">Kiểm tra xong sẽ không sửa được câu này.</span>
@@ -125,10 +135,11 @@ async function load() {
 }
 
 /** Lưu ngay (chọn phương án) hoặc trễ 600 ms khi đang gõ câu trả lời ngắn. */
-function onAnswer({ position, answer, typing }) {
+function onAnswer({ position, answer, typing, fileViews }) {
   if (!inProgress.value) return;
   const item = view.value.items.find((i) => i.position === position);
   item.answer = { ...(item.answer ?? {}), ...answer };
+  if (fileViews) item.files = fileViews;
   clearTimeout(pendingSaves.get(position));
   pendingSaves.set(position, setTimeout(() => persist(position, item.answer), typing ? 600 : 0));
 }
@@ -193,6 +204,10 @@ async function submit() {
 }
 
 function navClass(it) {
+  if (it.manual && it.grading) {
+    if (it.grading.pending) return 'done';
+    return it.grading.score >= it.points ? 'ok' : it.grading.score > 0 ? 'partial' : 'bad';
+  }
   if (it.result) return it.result.isCorrect ? 'ok' : it.result.score > 0 ? 'partial' : 'bad';
   return isAnswered(it) ? 'done' : '';
 }

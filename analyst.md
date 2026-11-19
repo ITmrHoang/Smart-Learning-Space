@@ -866,7 +866,7 @@ thời lượng, địa điểm, học phí. Khi làm phần quản lý lớp, t
 | Đợt | Nội dung |
 |---|---|
 | **8** ✅ | **Giáo án & bài giảng** — M34 giáo án theo mẫu · M35 xuất Word + trang in · M36 trình chiếu (`hui-slides`) + chiếu slide trong phòng live · M37 tài liệu đính kèm |
-| 9 | Đề & chấm (không AI): câu tự luận + hướng dẫn chấm theo bước; câu chùm; trộn N mã đề + xuất Word (dùng lại bộ xuất Word của M35); bộ đề + giao nhanh; chấm tự luận bằng ảnh; nhận xét mẫu / rubric; trả lời ngắn có sai số / biểu thức tương đương (dùng `hui-plot/expr.js`); câu hỏi có tham số (P2) |
+| **9** ✅ | Đề & chấm (không AI): câu tự luận + hướng dẫn chấm theo bước; trộn N mã đề + xuất Word (dùng lại bộ xuất Word của M35); bộ đề + giao nhanh; chấm tự luận bằng ảnh; nhận xét mẫu; trả lời ngắn có sai số / biểu thức tương đương (bộ đọc biểu thức ở server, cùng cách viết với `hui-plot`). **Chuyển sang đợt sau:** câu chùm, câu hỏi có tham số (ít gặp ở môn Toán) |
 | 10 | Bảng dạy Toán (WB2): sửa lỗi mất bảng, ảnh / PDF làm nền, chọn – di chuyển, nền ô ly, `hui-geometry`, `hui-math-input` + công thức trên bảng, quiz từ ngân hàng, bảng riêng từng học sinh |
 | 11 | Quản lý lớp học thêm: tài khoản học sinh do giáo viên tạo + nhập Excel, điểm danh chi tiết, học bù, nhận xét buổi, sổ điểm, Web Push |
 | 12 | Phiếu tô trắc nghiệm + chấm OMR từ ảnh chụp (thuật toán chạy trên trình duyệt) |

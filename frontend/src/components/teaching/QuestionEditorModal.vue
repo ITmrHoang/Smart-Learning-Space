@@ -29,7 +29,7 @@
 
       <MarkdownEditor v-model="form.content" label="Nội dung câu hỏi" :rows="5" :error="fields.content" compact />
 
-      <section v-if="form.kind !== 'short'" class="stack">
+      <section v-if="form.kind !== 'short' && form.kind !== 'essay'" class="stack">
         <div class="row between">
           <b>{{ form.kind === 'true_false' ? 'Các ý (đánh dấu ý Đúng)' : 'Phương án (đánh dấu đáp án đúng)' }}</b>
           <hui-button size="sm" variant="outline" :disabled="form.options.length >= maxOptions" @hui-click="addOption">Thêm {{ form.kind === 'true_false' ? 'ý' : 'phương án' }}</hui-button>
@@ -56,17 +56,60 @@
           @change="form.shuffleOptions = $event.detail.checked"
         />
       </section>
-      <section v-else class="stack">
+      <section v-else-if="form.kind === 'short'" class="stack">
         <hui-input
           label="Đáp án chấp nhận"
-          hint="Nhiều đáp án cách nhau dấu ; (ví dụ: 0,5; 1/2). Số 0,5 và 0.5 được coi là như nhau."
+          :hint="form.matchMode === 'expression'
+            ? 'Nhiều đáp án cách nhau dấu ; — học sinh viết dạng khác nhưng bằng nhau vẫn đúng (2(x+1) = 2x + 2, x = 2 ↔ 2 = x).'
+            : 'Nhiều đáp án cách nhau dấu ; (ví dụ: 0,5; 1/2). Số 0,5 và 0.5 được coi là như nhau.'"
           :value="accepted"
           :error="fields.accepted"
           @input="accepted = $event.detail.value"
         />
+        <div class="grid-2">
+          <hui-select label="Cách so đáp án" :options="matchModeOptions" :value="form.matchMode" @change="form.matchMode = $event.detail.value" />
+          <hui-input
+            label="Sai số cho phép (đáp án là số)"
+            type="number"
+            min="0"
+            step="any"
+            placeholder="0 = phải đúng tuyệt đối"
+            hint="Ví dụ 0,01: đáp án 3,14 thì 3,13 – 3,15 đều đúng."
+            :value="form.tolerance"
+            :error="fields.tolerance"
+            @input="form.tolerance = $event.detail.value"
+          />
+        </div>
+      </section>
+      <section v-else class="stack">
+        <div class="row between">
+          <b>Hướng dẫn chấm theo bước</b>
+          <span class="muted small">Tổng {{ formatScore(rubricTotal(form.rubric)) }} điểm</span>
+        </div>
+        <p class="muted small" style="margin: 0">
+          Mỗi bước: việc học sinh cần làm + điểm (ví dụ "Tính Δ = 1" — 0,25). Không có bước nào thì khi chấm nhập điểm cả câu.
+          Trong đề, câu tự luận mặc định được tổng điểm các bước.
+        </p>
+        <div v-for="(s, i) in form.rubric" :key="s.key" class="opt-row">
+          <span class="step-no">{{ i + 1 }}.</span>
+          <input class="native-input grow" :value="s.content" placeholder="Bước làm (gõ được $công thức$)" @input="s.content = $event.target.value" />
+          <input class="native-input points" type="number" min="0.05" step="0.05" :value="s.points" aria-label="Điểm" @input="s.points = $event.target.value" />
+          <span class="small muted">điểm</span>
+          <hui-button size="sm" variant="text" @hui-click="form.rubric.splice(i, 1)">Xóa</hui-button>
+          <hui-markdown v-if="s.content.includes('$')" class="opt-preview" inline :value="s.content" />
+        </div>
+        <p v-if="fields.rubric" class="field-error">{{ fields.rubric }}</p>
+        <div>
+          <hui-button size="sm" variant="outline" :disabled="form.rubric.length >= 20" @hui-click="form.rubric.push(step())">Thêm bước chấm</hui-button>
+        </div>
       </section>
 
-      <MarkdownEditor v-model="form.explanation" label="Lời giải (không bắt buộc)" :rows="4" compact />
+      <MarkdownEditor
+        v-model="form.explanation"
+        :label="form.kind === 'essay' ? 'Lời giải mẫu (giáo viên xem khi chấm; học sinh xem khi đề cho xem đáp án)' : 'Lời giải (không bắt buộc)'"
+        :rows="4"
+        compact
+      />
     </form>
   </hui-modal>
 </template>
@@ -78,7 +121,16 @@ import { computed, reactive, ref, watch } from 'vue';
 import { catalogApi, teachingApi } from '../../api';
 import { useSubmit } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
-import { LEVEL_LABELS, QUESTION_KIND_LABELS, letter, statementLetter, toOptions } from '../../utils/teaching';
+import {
+  LEVEL_LABELS,
+  MATCH_MODE_LABELS,
+  QUESTION_KIND_LABELS,
+  formatScore,
+  letter,
+  rubricTotal,
+  statementLetter,
+  toOptions,
+} from '../../utils/teaching';
 import MarkdownEditor from './MarkdownEditor.vue';
 
 const props = defineProps({
@@ -110,10 +162,15 @@ function blank() {
     options: [],
     explanation: '',
     shuffleOptions: true,
+    rubric: [],
+    tolerance: '',
+    matchMode: 'auto',
   };
 }
 
 const option = (content = '', correct = false, id = null) => ({ key: ++seq, id, content, correct });
+const step = (content = '', points = 0.25, id = null) => ({ key: ++seq, id, content, points });
+const matchModeOptions = toOptions(MATCH_MODE_LABELS);
 const maxOptions = computed(() => (form.kind === 'true_false' ? 6 : 8));
 
 const subjectOptions = computed(() => (master.value?.subjects ?? []).map((s) => ({ value: s.id, label: s.name })));
@@ -136,9 +193,10 @@ function onSubject(id) {
 function setKind(kind) {
   const prev = form.kind;
   form.kind = kind;
-  if (kind === 'short') {
+  if (kind === 'essay' && !form.rubric.length) form.rubric = [step()];
+  if (kind === 'short' || kind === 'essay') {
     form.options = [];
-  } else if (prev === 'short' || form.options.length < 2) {
+  } else if (prev === 'short' || prev === 'essay' || form.options.length < 2) {
     form.options = kind === 'true_false' ? [0, 1, 2, 3].map(() => option()) : [0, 1, 2, 3].map(() => option());
   }
   if (kind === 'single') {
@@ -179,6 +237,9 @@ watch(
         options: q.options.map((o) => option(o.content, o.correct, o.id)),
         explanation: q.explanation,
         shuffleOptions: q.shuffleOptions,
+        rubric: (q.rubric ?? []).map((s) => step(s.content, s.points, s.id)),
+        tolerance: q.tolerance ?? '',
+        matchMode: q.matchMode ?? 'auto',
       });
       accepted.value = q.accepted.join('; ');
     } else {
@@ -200,10 +261,13 @@ function payload() {
     level: form.level,
     tagIds: form.tagIds,
     content: form.content,
-    options: form.kind === 'short' ? [] : form.options.map((o) => ({ id: o.id, content: o.content, correct: o.correct })),
+    options: ['short', 'essay'].includes(form.kind) ? [] : form.options.map((o) => ({ id: o.id, content: o.content, correct: o.correct })),
     accepted: form.kind === 'short' ? accepted.value.split(';').map((a) => a.trim()).filter(Boolean) : [],
     explanation: form.explanation,
     shuffleOptions: form.shuffleOptions,
+    rubric: form.kind === 'essay' ? form.rubric.map((s) => ({ id: s.id, content: s.content, points: Number(s.points) })) : [],
+    tolerance: form.kind === 'short' && form.tolerance !== '' && form.tolerance !== null ? Number(String(form.tolerance).replace(',', '.')) : null,
+    matchMode: form.kind === 'short' ? form.matchMode : 'auto',
   };
 }
 
@@ -258,5 +322,12 @@ function close() {
 .opt-preview {
   flex-basis: 100%;
   padding-left: 100px;
+}
+.step-no {
+  min-width: 24px;
+  font-weight: 600;
+}
+.points {
+  width: 84px;
 }
 </style>

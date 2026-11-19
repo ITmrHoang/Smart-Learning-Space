@@ -137,6 +137,24 @@ export const teachingApi = {
   archiveExam: (id) => http.del(`/teaching/exams/${id}`),
   previewExam: (id) => http.post(`/teaching/exams/${id}/preview`),
   examAttempts: (id, classId) => http.get(`/teaching/exams/${id}/attempts`, { classId }),
+  /** Giao nhanh đề / bài tập: { kind: 'exam'|'homework', examId|assignmentId, title, dueAt, groupIds, userIds } */
+  quickAssign: (classId, data) => http.post(`/teaching/classes/${classId}/quick-assign`, data),
+  examSets: () => http.get('/teaching/exam-sets'),
+  examSet: (id) => http.get(`/teaching/exam-sets/${id}`),
+  createExamSet: (data) => http.post('/teaching/exam-sets', data),
+  updateExamSet: (id, data) => http.put(`/teaching/exam-sets/${id}`, data),
+  archiveExamSet: (id) => http.del(`/teaching/exam-sets/${id}`),
+  /** Mã đề đã tạo (kèm nội dung câu + đáp án). */
+  examPapers: (id) => http.get(`/teaching/exams/${id}/papers`),
+  /** Tạo lại bộ mã đề: { count, firstCode } */
+  generatePapers: (id, data) => http.post(`/teaching/exams/${id}/papers`, data),
+  /** Bài đã nộp còn câu tự luận chưa chấm (đề của mình + lớp làm trợ giảng). */
+  gradingQueue: () => http.get('/teaching/grading'),
+  /** data: { marks: { stepId: điểm }, score?, feedback, annotations: [{ fileId, annotatedFileId }] } */
+  gradeItem: (attemptId, position, data) => http.put(`/teaching/attempts/${attemptId}/items/${position}/grade`, data),
+  snippets: () => http.get('/teaching/comment-snippets'),
+  createSnippet: (body) => http.post('/teaching/comment-snippets', { body }),
+  deleteSnippet: (id) => http.del(`/teaching/comment-snippets/${id}`),
 
   // Nhóm học sinh (M13)
   students: (query) => http.get('/teaching/students', query),
@@ -221,7 +239,7 @@ export const learnApi = {
 /** Lượt làm bài. */
 export const attemptApi = {
   get: (id) => http.get(`/attempts/${id}`),
-  /** answer: { selected: [optionId] } | { truth: { optionId: bool } } | { text } */
+  /** answer: { selected: [optionId] } | { truth: { optionId: bool } } | { text } | tự luận: { text, files: [fileId] } */
   save: (id, position, answer) => http.put(`/attempts/${id}/items/${position}`, answer),
   check: (id, position) => http.post(`/attempts/${id}/items/${position}/check`),
   submit: (id) => http.post(`/attempts/${id}/submit`),

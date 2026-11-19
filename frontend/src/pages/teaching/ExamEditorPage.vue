@@ -8,6 +8,10 @@
       <div class="row">
         <span v-if="exam" class="muted small">{{ exam.questionCount }} câu · {{ formatScore(exam.maxScore) }} điểm · {{ exam.attemptCount }} lượt làm</span>
         <hui-button v-if="exam" variant="outline" :loading="previewing" @hui-click="preview">Làm thử</hui-button>
+        <RouterLink v-if="exam" :to="{ name: 'teach-exam-papers', params: { id: exam.id } }">
+          <hui-button variant="outline">Trộn mã đề / in</hui-button>
+        </RouterLink>
+        <hui-button v-if="exam" variant="outline" @hui-click="assignOpen = true">Giao nhanh</hui-button>
         <hui-button :loading="loading" @hui-click="save">Lưu đề</hui-button>
       </div>
     </div>
@@ -76,6 +80,19 @@
                   <hui-tag size="sm" :color="LEVEL_COLORS[q.level]">{{ LEVEL_LABELS[q.level] }}</hui-tag>
                 </span>
                 <span class="row">
+                  <label class="small points" :title="q.kind === 'essay' ? 'Bỏ trống = tổng điểm các bước chấm' : 'Bỏ trống = điểm mỗi câu của phần'">
+                    Điểm
+                    <input
+                      class="native-input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.25"
+                      :placeholder="formatScore(questionPoints({ ...s, questionPoints: {} }, q))"
+                      :value="s.questionPoints[q.id] ?? ''"
+                      @input="setPoints(s, q, $event.target.value)"
+                    />
+                  </label>
                   <button class="icon" :disabled="qi === 0" title="Lên" @click="move(s.questions, qi, -1)">↑</button>
                   <button class="icon" :disabled="qi === s.questions.length - 1" title="Xuống" @click="move(s.questions, qi, 1)">↓</button>
                   <button class="icon" title="Bỏ khỏi đề" @click="s.questions.splice(qi, 1)">✕</button>
@@ -105,7 +122,10 @@
         </div>
 
         <div class="row between">
-          <span class="muted small">{{ s.questions.length + s.rules.reduce((n, r) => n + (r.count || 0), 0) }} câu / lượt</span>
+          <span class="muted small">
+            {{ s.questions.length + s.rules.reduce((n, r) => n + (r.count || 0), 0) }} câu / lượt ·
+            {{ formatScore(sectionScore(s)) }} điểm
+          </span>
           <hui-button size="sm" variant="text" :disabled="form.sections.length <= 1" @hui-click="form.sections.splice(si, 1)">Xóa phần này</hui-button>
         </div>
       </article>
@@ -125,15 +145,22 @@
           <tr v-for="a in attempts" :key="a.id">
             <td>{{ a.student.fullName }} <span class="muted small">@{{ a.student.username }}</span> <hui-tag v-if="a.isPreview" size="sm">Làm thử</hui-tag></td>
             <td>{{ formatDateTime(a.startedAt) }}</td>
-            <td>{{ a.status === 'submitted' ? 'Đã nộp' : 'Đang làm' }}</td>
+            <td>
+              {{ a.status === 'submitted' ? 'Đã nộp' : 'Đang làm' }}
+              <hui-tag v-if="a.pending" size="sm" color="warning">{{ a.pending }} câu chờ chấm</hui-tag>
+            </td>
             <td>{{ a.score == null ? '—' : `${formatScore(a.score)} / ${formatScore(a.maxScore)}` }}</td>
-            <td><RouterLink :to="{ name: 'attempt', params: { id: a.id } }">Xem bài</RouterLink></td>
+            <td class="row">
+              <RouterLink :to="{ name: 'attempt', params: { id: a.id } }">Xem bài</RouterLink>
+              <RouterLink v-if="a.pending && !a.isPreview" :to="{ name: 'teach-grade-attempt', params: { id: a.id } }">Chấm</RouterLink>
+            </td>
           </tr>
         </tbody>
       </table>
     </section>
 
     <QuestionPickerModal v-model:open="picker.open" :subjectId="form.subjectId" :exclude="allQuestionIds" @picked="onPicked" />
+    <QuickAssignModal v-if="exam" v-model:open="assignOpen" kind="exam" :refId="exam.id" :refTitle="exam.title" />
   </div>
 </template>
 
@@ -144,6 +171,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { catalogApi, teachingApi } from '../../api';
 import QuestionPickerModal from '../../components/teaching/QuestionPickerModal.vue';
+import QuickAssignModal from '../../components/teaching/QuickAssignModal.vue';
 import { flattenFolders } from '../../utils/folders';
 import { formatDateTime, useSubmit } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
@@ -155,6 +183,7 @@ import {
   SCORING_LABELS,
   SHOW_ANSWERS_LABELS,
   formatScore,
+  questionPoints,
   toOptions,
 } from '../../utils/teaching';
 
@@ -168,6 +197,7 @@ const attempts = ref([]);
 const tags = ref([]);
 const folders = ref([]);
 const previewing = ref(false);
+const assignOpen = ref(false);
 const picker = reactive({ open: false, section: 0 });
 let seq = 0;
 
@@ -204,8 +234,20 @@ const section = (title = `Phần ${form.sections.length + 1}`, scoring = 'per_qu
   scoring,
   pointsPerQuestion: points,
   questions: [],
+  questionPoints: {},
   rules: [],
 });
+
+/** Điểm riêng của câu cố định (bỏ trống = mặc định). */
+function setPoints(s, q, value) {
+  if (value === '' || value === null) delete s.questionPoints[q.id];
+  else s.questionPoints[q.id] = Number(String(value).replace(',', '.'));
+}
+
+/** Tổng điểm một phần (câu cố định + câu rút theo ma trận) — giống cách server tính. */
+const sectionScore = (s) =>
+  s.questions.reduce((sum, q) => sum + questionPoints(s, q), 0) +
+  s.rules.reduce((n, r) => n + (r.count || 0), 0) * Number(s.pointsPerQuestion || 0);
 
 function addSection() {
   form.sections.push(section());
@@ -277,6 +319,7 @@ function apply(e) {
       scoring: s.scoring,
       pointsPerQuestion: s.pointsPerQuestion,
       questions: s.questions,
+      questionPoints: { ...(s.questionPoints ?? {}) },
       rules: s.rules.map((r) => ({ ...r, key: ++seq })),
     })),
   });
@@ -301,6 +344,10 @@ function payload() {
       scoring: s.scoring,
       pointsPerQuestion: s.pointsPerQuestion,
       questionIds: s.questions.map((q) => q.id),
+      // Chỉ gửi điểm riêng của câu còn trong phần
+      questionPoints: Object.fromEntries(
+        s.questions.filter((q) => Number.isFinite(s.questionPoints[q.id])).map((q) => [q.id, s.questionPoints[q.id]]),
+      ),
       rules: s.rules.map((r) => ({ tagId: r.tagId, level: r.level, kind: r.kind, folderId: r.folderId, count: r.count })),
     })),
   };
@@ -364,6 +411,14 @@ onMounted(async () => {
   border: 1px solid var(--hui-border-secondary, #eceef1);
   border-radius: var(--hui-radius-lg, 12px);
   background: var(--hui-bg-secondary, #f7f8fa);
+}
+.points {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.points input {
+  width: 72px;
 }
 .fixed {
   margin: 0;

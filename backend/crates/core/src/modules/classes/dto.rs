@@ -461,3 +461,36 @@ pub struct DueDeck {
     pub fresh: i64,
     pub total: i64,
 }
+
+/// Giao nhanh đề / bài tập (M41).
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAssignInput {
+    /// `exam` hoặc `homework`.
+    pub kind: StepKind,
+    pub exam_id: Option<Uuid>,
+    pub assignment_id: Option<Uuid>,
+    /// Tên bước (để trống = tên đề / bài tập).
+    #[serde(default)]
+    #[validate(length(max = 200, message = "Tên tối đa 200 ký tự."))]
+    pub title: String,
+    /// Đề: hạn làm (quá hạn không bắt đầu được). Bài tập: hạn nộp.
+    pub due_at: Option<DateTime<Utc>>,
+    /// Cả hai trống = cả lớp.
+    #[serde(default)]
+    #[validate(length(max = 50, message = "Tối đa 50 nhóm."))]
+    pub group_ids: Vec<Uuid>,
+    #[serde(default)]
+    #[validate(length(max = 500, message = "Tối đa 500 học sinh."))]
+    pub user_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAssignResponse {
+    pub step_id: Uuid,
+    /// Phiên bản lộ trình mới.
+    pub version: i32,
+    /// Số học sinh được giao (đã báo).
+    pub assigned: usize,
+}

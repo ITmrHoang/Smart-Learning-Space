@@ -5,7 +5,25 @@ export const QUESTION_KIND_LABELS = {
   multiple: 'Nhiều đáp án',
   true_false: 'Đúng / sai',
   short: 'Trả lời ngắn',
+  essay: 'Tự luận',
 };
+
+/** Trả lời ngắn: cách so đáp án. */
+export const MATCH_MODE_LABELS = {
+  auto: 'Số hoặc chữ (0,5 = 1/2)',
+  expression: 'Biểu thức tương đương (2(x+1) = 2x + 2)',
+};
+
+/** Tổng điểm các bước của hướng dẫn chấm. */
+export const rubricTotal = (rubric) => Math.round((rubric ?? []).reduce((s, r) => s + Number(r.points || 0), 0) * 100) / 100;
+
+/** Điểm câu cố định trong đề: điểm riêng → tổng bước chấm (tự luận) → điểm mỗi câu của phần (giống server). */
+export function questionPoints(section, question) {
+  const custom = section.questionPoints?.[question.id];
+  if (custom !== undefined && custom !== null && custom !== '') return Number(custom);
+  const total = question.kind === 'essay' ? rubricTotal(question.rubric) : 0;
+  return total > 0 ? total : Number(section.pointsPerQuestion);
+}
 
 export const LEVEL_LABELS = {
   nhan_biet: 'Nhận biết',
@@ -124,6 +142,7 @@ export function formatClock(total) {
 export function isAnswered(item) {
   const a = item.answer;
   if (!a) return false;
+  if (item.kind === 'essay') return Boolean((a.text && a.text.trim()) || (a.files || []).length);
   if (item.kind === 'short') return Boolean(a.text && a.text.trim());
   if (item.kind === 'true_false') return Object.keys(a.truth || {}).length === item.options.length;
   return (a.selected || []).length > 0;
@@ -139,12 +158,18 @@ export function questionAsItem(q, { withContent = false } = {}) {
     options: q.options,
     answer: null,
     checked: true,
+    manual: q.kind === 'essay',
+    files: [],
+    grading: null,
     result: {
       isCorrect: true,
       score: 1,
       correct: q.options.filter((o) => o.correct).map((o) => o.id),
       accepted: q.accepted,
       explanation: q.explanation,
+      rubric: q.rubric ?? [],
+      tolerance: q.tolerance ?? null,
+      matchMode: q.matchMode ?? 'auto',
     },
   };
 }

@@ -51,8 +51,8 @@
           Điểm đạt
           <input v-model.number="s.passScore" type="number" min="0" step="0.25" class="native-input score" placeholder="—" @input="dirty = true" />
         </label>
-        <label v-if="s.kind === 'homework'" class="small inline">
-          Hạn nộp
+        <label v-if="s.kind === 'homework' || s.kind === 'exam'" class="small inline">
+          {{ s.kind === 'exam' ? 'Hạn làm' : 'Hạn nộp' }}
           <input v-model="s.dueLocal" type="datetime-local" class="native-input" @input="dirty = true" />
         </label>
         <select v-if="s.kind !== 'milestone'" v-model="s.unlock" class="native-select small" @change="dirty = true">
@@ -248,7 +248,7 @@ function payload() {
     sessionId: s.kind === 'session' ? s.sessionId : null,
     deckId: s.kind === 'deck' ? s.deckId : null,
     assignmentId: s.kind === 'homework' ? s.assignmentId : null,
-    dueAt: s.kind === 'homework' && s.dueLocal ? fromLocal(...s.dueLocal.split('T')) : null,
+    dueAt: (s.kind === 'homework' || s.kind === 'exam') && s.dueLocal ? fromLocal(...s.dueLocal.split('T')) : null,
     audienceGroupIds: s.kind === 'milestone' ? [] : s.audienceGroupIds,
     audienceUserIds: s.kind === 'milestone' ? [] : s.audienceUserIds,
     unlock: s.unlock,

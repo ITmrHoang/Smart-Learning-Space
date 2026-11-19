@@ -6,7 +6,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::model::{QuestionBody, QuestionKind};
+use super::{
+    expr,
+    model::{MatchMode, QuestionBody, QuestionKind},
+};
 
 /// Cách chấm của một phần đề.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,14 +48,20 @@ pub struct Answer {
     /// true_false: ID ý → học sinh chọn Đúng (`true`) hay Sai (`false`).
     #[serde(default)]
     pub truth: BTreeMap<Uuid, bool>,
-    /// short: câu trả lời gõ vào.
+    /// short / essay: câu trả lời gõ vào.
     #[serde(default)]
     pub text: Option<String>,
+    /// essay: ảnh / PDF bài làm (file mục đích `homework` của học sinh).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<Uuid>,
 }
 
 impl Answer {
     pub fn is_empty(&self) -> bool {
-        self.selected.is_empty() && self.truth.is_empty() && self.text.as_deref().is_none_or(|t| t.trim().is_empty())
+        self.selected.is_empty()
+            && self.truth.is_empty()
+            && self.files.is_empty()
+            && self.text.as_deref().is_none_or(|t| t.trim().is_empty())
     }
 }
 
@@ -87,15 +96,36 @@ fn parse_number(s: &str) -> Option<f64> {
 
 /// Câu trả lời ngắn khớp một trong các đáp án chấp nhận (so số nếu cả hai là số, không thì so chữ).
 pub fn short_matches(given: &str, accepted: &[String]) -> bool {
+    matches_with(given, accepted, None, MatchMode::Auto)
+}
+
+/// Như `short_matches`, thêm sai số cho đáp án là số và cách so biểu thức tương đương.
+pub fn matches_with(given: &str, accepted: &[String], tolerance: Option<f64>, mode: MatchMode) -> bool {
     let given_num = parse_number(given);
     let given_text = normalize_text(given);
     if given_text.is_empty() {
         return false;
     }
+    let tol = tolerance.unwrap_or(0.0).max(0.0) + 1e-9;
+    let given_expr = (mode == MatchMode::Expression).then(|| expr::parse_answer(given).ok()).flatten();
     accepted.iter().any(|a| match (given_num, parse_number(a)) {
-        (Some(x), Some(y)) => (x - y).abs() < 1e-9,
-        _ => normalize_text(a) == given_text,
+        (Some(x), Some(y)) => (x - y).abs() <= tol,
+        _ if normalize_text(a) == given_text => true,
+        _ => given_expr.as_ref().is_some_and(|g| expr::parse_answer(a).is_ok_and(|e| expr::equivalent(g, &e))),
     })
+}
+
+/// Điểm câu chấm tay: theo các bước của hướng dẫn chấm (quy về thang `points` của câu), hoặc điểm nhập thẳng khi câu
+/// không có bước chấm. Kết quả nằm trong [0, points], làm tròn 2 chữ số.
+pub fn manual_score(body: &QuestionBody, points: f64, marks: &BTreeMap<Uuid, f64>, direct: Option<f64>) -> f64 {
+    let total = body.rubric_total();
+    let raw = if total > 0.0 {
+        let got: f64 = body.rubric.iter().map(|s| marks.get(&s.id).copied().unwrap_or(0.0).clamp(0.0, s.points)).sum();
+        got / total * points
+    } else {
+        direct.unwrap_or(0.0)
+    };
+    round2(raw.clamp(0.0, points))
 }
 
 /// Bảng điểm đúng/sai THPT theo số ý đúng (câu 4 ý).
@@ -141,16 +171,21 @@ pub fn grade(
             Graded { is_correct: all, score: round2(score) }
         }
         QuestionKind::Short => {
-            let ok = answer.text.as_deref().is_some_and(|t| short_matches(t, &body.accepted));
+            let ok = answer
+                .text
+                .as_deref()
+                .is_some_and(|t| matches_with(t, &body.accepted, body.tolerance, body.match_mode));
             Graded { is_correct: ok, score: if ok { points } else { 0.0 } }
         }
+        // Giáo viên chấm tay (`manual_score`); chấm tự động để 0 điểm "chờ chấm".
+        QuestionKind::Essay => Graded { is_correct: false, score: 0.0 },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::questions::model::QOption;
+    use crate::modules::questions::model::{QOption, RubricStep};
 
     fn body(n: usize, correct: &[usize]) -> (QuestionBody, Vec<Uuid>) {
         let ids: Vec<Uuid> = (0..n).map(|_| Uuid::now_v7()).collect();
@@ -161,6 +196,9 @@ mod tests {
             accepted: vec![],
             explanation: String::new(),
             shuffle_options: true,
+            rubric: vec![],
+            tolerance: None,
+            match_mode: Default::default(),
         };
         (body, ids)
     }
@@ -219,9 +257,62 @@ mod tests {
             accepted: vec!["-3".into()],
             explanation: String::new(),
             shuffle_options: false,
+            rubric: vec![],
+            tolerance: None,
+            match_mode: Default::default(),
         };
         let a = Answer { text: Some("-3,0".into()), ..Default::default() };
         assert_eq!(grade(QuestionKind::Short, &b, Some(&a), Scoring::PerQuestion, 0.5).score, 0.5);
+    }
+
+    #[test]
+    fn tra_loi_ngan_sai_so_va_bieu_thuc() {
+        let acc = vec!["3,14".to_string()];
+        assert!(matches_with("3.15", &acc, Some(0.01), MatchMode::Auto));
+        assert!(matches_with("3,13", &acc, Some(0.01), MatchMode::Auto));
+        assert!(!matches_with("3.16", &acc, Some(0.01), MatchMode::Auto));
+        assert!(!matches_with("3.15", &acc, None, MatchMode::Auto));
+
+        let acc = vec!["2(x+1)".to_string()];
+        assert!(matches_with("2x + 2", &acc, None, MatchMode::Expression));
+        assert!(matches_with("2 + 2x", &acc, None, MatchMode::Expression));
+        assert!(!matches_with("2x + 1", &acc, None, MatchMode::Expression));
+        assert!(!matches_with("2x + 2", &acc, None, MatchMode::Auto), "so chữ thì phải viết giống");
+        assert!(!matches_with("2x +", &acc, None, MatchMode::Expression), "không đọc được = sai");
+        // Đáp án là số vẫn so số (có sai số) ở chế độ biểu thức
+        assert!(matches_with("1/2", &["0,5".to_string()], None, MatchMode::Expression));
+        assert!(matches_with("√2/2", &["1/√2".to_string()], None, MatchMode::Expression));
+    }
+
+    #[test]
+    fn diem_tu_luan_theo_buoc() {
+        let s = |p: f64| RubricStep { id: Uuid::now_v7(), content: "bước".into(), points: p };
+        let mut b = QuestionBody {
+            content: "Giải phương trình".into(),
+            options: vec![],
+            correct: vec![],
+            accepted: vec![],
+            explanation: String::new(),
+            shuffle_options: false,
+            rubric: vec![s(0.25), s(0.5), s(0.25)],
+            tolerance: None,
+            match_mode: Default::default(),
+        };
+        let ids: Vec<Uuid> = b.rubric.iter().map(|r| r.id).collect();
+        let marks = |m: &[(usize, f64)]| m.iter().map(|(i, p)| (ids[*i], *p)).collect::<BTreeMap<_, _>>();
+        // Câu 1 điểm, các bước tổng 1 điểm
+        assert_eq!(manual_score(&b, 1.0, &marks(&[(0, 0.25), (1, 0.5)]), None), 0.75);
+        // Đặt câu 2 điểm trong đề: quy theo tỉ lệ
+        assert_eq!(manual_score(&b, 2.0, &marks(&[(0, 0.25), (1, 0.25)]), None), 1.0);
+        // Cho quá điểm bước → kẹp lại; bước lạ bị bỏ qua
+        let mut over = marks(&[(0, 5.0)]);
+        over.insert(Uuid::now_v7(), 1.0);
+        assert_eq!(manual_score(&b, 1.0, &over, None), 0.25);
+        // Không có bước chấm: điểm nhập thẳng, kẹp trong [0, điểm câu]
+        b.rubric.clear();
+        assert_eq!(manual_score(&b, 1.5, &BTreeMap::new(), Some(1.25)), 1.25);
+        assert_eq!(manual_score(&b, 1.5, &BTreeMap::new(), Some(9.0)), 1.5);
+        assert_eq!(grade(QuestionKind::Essay, &b, None, Scoring::PerQuestion, 1.0).score, 0.0);
     }
 
     #[test]

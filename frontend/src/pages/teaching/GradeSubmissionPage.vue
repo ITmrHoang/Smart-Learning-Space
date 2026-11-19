@@ -43,6 +43,7 @@
           <p v-else class="muted small" style="margin: 0">Bài tập này chỉ nhận xét, không chấm điểm.</p>
           <p v-if="fields.score" class="field-error">{{ fields.score }}</p>
           <MarkdownEditor v-model="feedback" label="Nhận xét" :rows="6" compact :error="fields.feedback" placeholder="Chỗ làm tốt, chỗ cần sửa…" />
+          <CommentSnippets :text="feedback" @insert="(t) => (feedback = feedback.trim() ? `${feedback.trim()}\n\n${t}` : t)" />
           <hui-alert v-if="formError" severity="error" :description="formError" />
           <div class="row">
             <hui-button :loading="loading && action === 'grade'" @hui-click="save('grade')">Chấm xong</hui-button>
@@ -63,6 +64,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { teachingApi } from '../../api';
+import CommentSnippets from '../../components/teaching/CommentSnippets.vue';
 import ImageAnnotator from '../../components/teaching/ImageAnnotator.vue';
 import MarkdownEditor from '../../components/teaching/MarkdownEditor.vue';
 import { formatDateTime, useSubmit } from '../../utils/form';

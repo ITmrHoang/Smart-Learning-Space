@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::model::{Folder, QuestionKind, QuestionRow};
+use super::model::{Folder, MatchMode, QuestionKind, QuestionRow, RubricStep};
 use crate::modules::catalog::model::QuestionLevel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, Validate)]
@@ -16,6 +16,18 @@ pub struct OptionInput {
     /// single / multiple: là đáp án đúng. true_false: ý này **Đúng**.
     #[serde(default)]
     pub correct: bool,
+}
+
+/// Một bước chấm câu tự luận.
+#[derive(Debug, Clone, Deserialize, Serialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct RubricStepInput {
+    /// ID bước cũ (giữ khi sửa); bỏ trống = bước mới.
+    pub id: Option<Uuid>,
+    #[validate(length(min = 1, max = 2000, message = "Nội dung mỗi bước chấm từ 1 đến 2.000 ký tự."))]
+    pub content: String,
+    #[validate(range(exclusive_min = 0.0, max = 100.0, message = "Điểm mỗi bước lớn hơn 0 và tối đa 100."))]
+    pub points: f64,
 }
 
 /// Tạo / sửa câu hỏi.
@@ -43,6 +55,15 @@ pub struct QuestionInput {
     pub explanation: String,
     #[serde(default = "default_true")]
     pub shuffle_options: bool,
+    /// Tự luận: hướng dẫn chấm theo bước.
+    #[serde(default)]
+    #[validate(length(max = 20, message = "Tối đa 20 bước chấm."), nested)]
+    pub rubric: Vec<RubricStepInput>,
+    /// Trả lời ngắn: sai số cho phép với đáp án là số.
+    #[validate(range(min = 0.0, max = 1000000.0, message = "Sai số từ 0 đến 1.000.000."))]
+    pub tolerance: Option<f64>,
+    #[serde(default)]
+    pub match_mode: MatchMode,
 }
 
 fn default_true() -> bool {
@@ -88,6 +109,9 @@ pub struct QuestionResponse {
     pub accepted: Vec<String>,
     pub explanation: String,
     pub shuffle_options: bool,
+    pub rubric: Vec<RubricStep>,
+    pub tolerance: Option<f64>,
+    pub match_mode: MatchMode,
     pub used_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -114,6 +138,9 @@ impl From<QuestionRow> for QuestionResponse {
             accepted: body.accepted,
             explanation: body.explanation,
             shuffle_options: body.shuffle_options,
+            rubric: body.rubric,
+            tolerance: body.tolerance,
+            match_mode: body.match_mode,
             used_count: q.used_count,
             created_at: q.created_at,
             updated_at: q.updated_at,

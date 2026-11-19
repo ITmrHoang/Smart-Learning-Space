@@ -1,15 +1,18 @@
+use std::collections::{BTreeMap, HashMap};
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::model::{AttemptListRow, ExamKind, ShowAnswers};
+use super::model::{Annotation, AttemptListRow, ExamKind, QueueRow, ShowAnswers};
 use crate::modules::{
     catalog::model::QuestionLevel,
+    files::FileView,
     questions::{
         dto::QuestionResponse,
         grading::{Answer, Scoring},
-        model::QuestionKind,
+        model::{QuestionKind, RubricStep},
     },
 };
 
@@ -38,6 +41,10 @@ pub struct SectionInput {
     #[serde(default)]
     #[validate(length(max = 30, message = "Mỗi phần tối đa 30 ô ma trận."), nested)]
     pub rules: Vec<RuleInput>,
+    /// Điểm riêng của câu cố định (ID câu → điểm). Câu không có ở đây: tự luận có hướng dẫn chấm = tổng điểm các
+    /// bước, còn lại = `points_per_question`.
+    #[serde(default)]
+    pub question_points: HashMap<Uuid, f64>,
 }
 
 /// Tạo / sửa đề (gửi cả cấu trúc phần).
@@ -102,6 +109,8 @@ pub struct SectionResponse {
     pub points_per_question: f64,
     pub questions: Vec<QuestionResponse>,
     pub rules: Vec<RuleResponse>,
+    /// Điểm riêng đã đặt cho câu cố định.
+    pub question_points: HashMap<Uuid, f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,6 +171,29 @@ pub struct ItemResult {
     pub correct: Vec<Uuid>,
     pub accepted: Vec<String>,
     pub explanation: String,
+    /// Tự luận: hướng dẫn chấm theo bước.
+    pub rubric: Vec<RubricStep>,
+}
+
+/// Ảnh / PDF bài làm của câu tự luận, kèm bản giáo viên đã vẽ nhận xét.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerFile {
+    pub file: FileView,
+    pub annotated: Option<FileView>,
+}
+
+/// Kết quả chấm tay của câu tự luận.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemGrading {
+    /// Chưa chấm.
+    pub pending: bool,
+    pub score: Option<f64>,
+    /// Điểm đạt từng bước (ID bước → điểm).
+    pub marks: BTreeMap<Uuid, f64>,
+    pub feedback: String,
+    pub graded_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,6 +211,62 @@ pub struct ItemView {
     /// Ôn tập: đã bấm "Kiểm tra" (không sửa được nữa).
     pub checked: bool,
     pub result: Option<ItemResult>,
+    /// Câu tự luận (giáo viên chấm).
+    pub manual: bool,
+    /// Tự luận: ảnh / PDF bài làm.
+    pub files: Vec<AnswerFile>,
+    /// Tự luận đã nộp: trạng thái chấm, điểm từng bước, nhận xét.
+    pub grading: Option<ItemGrading>,
+}
+
+/// Giáo viên chấm một câu tự luận.
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct GradeItemInput {
+    /// Điểm đạt từng bước của hướng dẫn chấm.
+    #[serde(default)]
+    pub marks: BTreeMap<Uuid, f64>,
+    /// Câu không có hướng dẫn chấm: điểm cả câu.
+    pub score: Option<f64>,
+    #[serde(default)]
+    #[validate(length(max = 5000, message = "Nhận xét tối đa 5.000 ký tự."))]
+    pub feedback: String,
+    /// Ảnh bài làm đã vẽ nhận xét (thay toàn bộ danh sách cũ).
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
+}
+
+/// Một bài chờ chấm.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub attempt_id: Uuid,
+    pub exam_id: Uuid,
+    pub exam_title: String,
+    pub class_id: Option<Uuid>,
+    pub class_title: Option<String>,
+    pub student: StudentInfo,
+    pub submitted_at: Option<DateTime<Utc>>,
+    pub score: f64,
+    pub max_score: f64,
+    pub pending: i64,
+}
+
+impl From<QueueRow> for QueueItem {
+    fn from(r: QueueRow) -> Self {
+        Self {
+            attempt_id: r.id,
+            exam_id: r.exam_id,
+            exam_title: r.exam_title,
+            class_id: r.class_id,
+            class_title: r.class_title,
+            student: StudentInfo { id: r.user_id, username: r.username, full_name: r.full_name },
+            submitted_at: r.submitted_at,
+            score: r.score,
+            max_score: r.max_score,
+            pending: r.pending,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -213,6 +301,10 @@ pub struct AttemptView {
     /// Ôn tập đang làm: được bấm "Kiểm tra" từng câu.
     pub can_check: bool,
     pub student: Option<StudentInfo>,
+    /// Số câu tự luận chưa chấm (bài đã nộp).
+    pub pending: i64,
+    /// Người xem chấm được bài này (giáo viên chủ đề / trợ giảng của lớp).
+    pub can_grade: bool,
     pub items: Vec<ItemView>,
 }
 
@@ -229,6 +321,8 @@ pub struct AttemptSummary {
     pub score: Option<f64>,
     pub max_score: f64,
     pub student: StudentInfo,
+    /// Số câu tự luận chưa chấm.
+    pub pending: i64,
 }
 
 impl From<AttemptListRow> for AttemptSummary {
@@ -245,6 +339,7 @@ impl From<AttemptListRow> for AttemptSummary {
             score: submitted.then_some(r.score),
             max_score: r.max_score,
             student: StudentInfo { id: r.user_id, username: r.username, full_name: r.full_name },
+            pending: r.pending,
         }
     }
 }
@@ -253,4 +348,68 @@ impl From<AttemptListRow> for AttemptSummary {
 #[serde(rename_all = "camelCase")]
 pub struct AttemptQuery {
     pub class_id: Option<Uuid>,
+}
+
+// ---------- Mã đề (M40) ----------
+
+fn default_first_code() -> i32 {
+    101
+}
+
+/// Tạo bộ mã đề (thay bộ cũ).
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct PapersInput {
+    #[validate(range(min = 1, max = 24, message = "Tạo từ 1 đến 24 mã đề."))]
+    pub count: i32,
+    /// Mã đầu tiên (101 → 101, 102, …).
+    #[serde(default = "default_first_code")]
+    #[validate(range(min = 1, max = 9900, message = "Mã đề đầu tiên từ 1 đến 9900."))]
+    pub first_code: i32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaperOption {
+    pub id: Uuid,
+    pub content: String,
+    pub correct: bool,
+}
+
+/// Một câu trong mã đề (kèm đáp án — chỉ giáo viên xem).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaperQuestion {
+    /// Số câu trong phần (đánh lại từ 1 ở mỗi phần, như đề THPT).
+    pub number: i32,
+    pub section_position: i32,
+    pub section_title: String,
+    pub points: f64,
+    pub kind: String,
+    pub content: String,
+    /// Theo thứ tự đã trộn của mã đề.
+    pub options: Vec<PaperOption>,
+    pub accepted: Vec<String>,
+    pub explanation: String,
+    pub rubric: Vec<RubricStep>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaperView {
+    pub id: Uuid,
+    pub code: String,
+    pub items: Vec<PaperQuestion>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PapersResponse {
+    pub exam_id: Uuid,
+    pub title: String,
+    pub subject_id: Uuid,
+    pub time_limit_minutes: Option<i32>,
+    pub max_score: f64,
+    pub created_at: Option<DateTime<Utc>>,
+    pub papers: Vec<PaperView>,
 }

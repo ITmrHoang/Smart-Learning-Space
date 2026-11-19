@@ -37,6 +37,8 @@ pub struct NewSection<'a> {
     pub scoring: &'a str,
     pub points_per_question: f64,
     pub question_ids: &'a [Uuid],
+    /// Điểm riêng từng câu cố định (cùng thứ tự `question_ids`; `None` = điểm mỗi câu của phần).
+    pub question_points: Vec<Option<f64>>,
     pub rules: Vec<NewRule>,
 }
 
@@ -168,11 +170,12 @@ pub async fn replace_sections(
         .fetch_one(&mut *conn)
         .await?;
         sqlx::query(
-            "INSERT INTO exam_section_questions (section_id, position, question_id) \
-             SELECT $1, (ord - 1)::int, qid FROM unnest($2::uuid[]) WITH ORDINALITY AS t(qid, ord)",
+            "INSERT INTO exam_section_questions (section_id, position, question_id, points) \
+             SELECT $1, (ord - 1)::int, qid, pts FROM unnest($2::uuid[], $3::float8[]) WITH ORDINALITY AS t(qid, pts, ord)",
         )
         .bind(section_id)
         .bind(s.question_ids)
+        .bind(&s.question_points)
         .execute(&mut *conn)
         .await?;
         for (j, r) in s.rules.iter().enumerate() {
@@ -209,7 +212,8 @@ pub async fn section_questions<'e, E: PgExecutor<'e>>(
     section_ids: &[Uuid],
 ) -> sqlx::Result<Vec<SectionQuestionRow>> {
     sqlx::query_as::<_, SectionQuestionRow>(
-        "SELECT section_id, position, question_id FROM exam_section_questions WHERE section_id = ANY($1) ORDER BY position",
+        "SELECT section_id, position, question_id, points FROM exam_section_questions WHERE section_id = ANY($1) \
+         ORDER BY position",
     )
     .bind(section_ids)
     .fetch_all(db)
@@ -265,6 +269,8 @@ pub struct NewItem<'a> {
     pub question_id: Uuid,
     pub question_version_id: Uuid,
     pub option_order: Vec<Uuid>,
+    /// Câu tự luận: giáo viên chấm.
+    pub manual: bool,
 }
 
 pub async fn insert_attempt(
@@ -288,7 +294,7 @@ pub async fn insert_attempt(
     for it in items {
         sqlx::query(
             "INSERT INTO attempt_items (attempt_id, position, section_position, section_title, scoring, points, \
-                question_id, question_version_id, option_order) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                question_id, question_version_id, option_order, manual) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(id)
         .bind(it.position)
@@ -299,6 +305,7 @@ pub async fn insert_attempt(
         .bind(it.question_id)
         .bind(it.question_version_id)
         .bind(&it.option_order)
+        .bind(it.manual)
         .execute(&mut *conn)
         .await?;
     }
@@ -352,7 +359,8 @@ pub async fn count_attempts<'e, E: PgExecutor<'e>>(
 pub async fn items<'e, E: PgExecutor<'e>>(db: E, attempt_id: Uuid) -> sqlx::Result<Vec<AttemptItemRow>> {
     sqlx::query_as::<_, AttemptItemRow>(
         "SELECT position, section_position, section_title, scoring, points, question_id, question_version_id, option_order, \
-                answer, checked, is_correct, score FROM attempt_items WHERE attempt_id = $1 ORDER BY position",
+                answer, checked, is_correct, score, manual, marks, feedback, annotations, graded_at \
+         FROM attempt_items WHERE attempt_id = $1 ORDER BY position",
     )
     .bind(attempt_id)
     .fetch_all(db)
@@ -416,7 +424,8 @@ pub async fn list_for_exam<'e, E: PgExecutor<'e>>(
 ) -> sqlx::Result<Vec<AttemptListRow>> {
     sqlx::query_as::<_, AttemptListRow>(
         "SELECT a.id, a.exam_id, a.user_id, u.username, u.full_name, a.class_id, a.is_preview, a.status, a.started_at, \
-                a.submitted_at, a.score, a.max_score \
+                a.submitted_at, a.score, a.max_score, \
+                (SELECT count(*) FROM attempt_items i WHERE i.attempt_id = a.id AND i.manual AND i.graded_at IS NULL) AS pending \
          FROM attempts a JOIN users u ON u.id = a.user_id \
          WHERE a.exam_id = $1 AND ($2::uuid IS NULL OR a.class_id = $2) AND ($3::uuid IS NULL OR a.user_id = $3) \
          ORDER BY a.started_at DESC",
@@ -517,4 +526,98 @@ pub async fn recompute_scores<'e, E: PgExecutor<'e>>(db: E, attempt_ids: &[Uuid]
     .execute(db)
     .await?;
     Ok(())
+}
+
+// ---------- Chấm tay (M39) ----------
+
+pub struct ManualGrade<'a> {
+    pub marks: &'a std::collections::BTreeMap<Uuid, f64>,
+    pub feedback: &'a str,
+    pub annotations: &'a [super::model::Annotation],
+    pub score: f64,
+    pub is_correct: bool,
+    pub graded_by: Uuid,
+}
+
+pub async fn set_manual_grade<'e, E: PgExecutor<'e>>(
+    db: E,
+    attempt_id: Uuid,
+    position: i32,
+    g: &ManualGrade<'_>,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE attempt_items SET marks = $3, feedback = $4, annotations = $5, score = $6, is_correct = $7, \
+                graded_by = $8, graded_at = now() \
+         WHERE attempt_id = $1 AND position = $2 AND manual",
+    )
+    .bind(attempt_id)
+    .bind(position)
+    .bind(Json(g.marks))
+    .bind(g.feedback)
+    .bind(Json(g.annotations))
+    .bind(g.score)
+    .bind(g.is_correct)
+    .bind(g.graded_by)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Số câu tự luận chưa chấm của lượt làm.
+pub async fn pending_count<'e, E: PgExecutor<'e>>(db: E, attempt_id: Uuid) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM attempt_items WHERE attempt_id = $1 AND manual AND graded_at IS NULL")
+        .bind(attempt_id)
+        .fetch_one(db)
+        .await
+}
+
+/// Bài đã nộp còn câu tự luận chưa chấm: đề của giáo viên, hoặc bài trong lớp người này làm trợ giảng.
+pub async fn grading_queue<'e, E: PgExecutor<'e>>(db: E, user_id: Uuid) -> sqlx::Result<Vec<super::model::QueueRow>> {
+    sqlx::query_as::<_, super::model::QueueRow>(
+        "SELECT a.id, a.exam_id, e.title AS exam_title, a.class_id, c.title AS class_title, a.user_id, u.username, \
+                u.full_name, a.submitted_at, a.score, a.max_score, p.pending \
+         FROM attempts a \
+         JOIN exams e ON e.id = a.exam_id \
+         JOIN users u ON u.id = a.user_id \
+         LEFT JOIN classes c ON c.id = a.class_id \
+         JOIN LATERAL (SELECT count(*) AS pending FROM attempt_items i \
+                       WHERE i.attempt_id = a.id AND i.manual AND i.graded_at IS NULL) p ON p.pending > 0 \
+         WHERE a.status = 'submitted' AND NOT a.is_preview \
+           AND (e.owner_id = $1 OR a.class_id IN (SELECT class_id FROM class_members \
+                WHERE user_id = $1 AND role = 'assistant' AND status = 'active')) \
+         ORDER BY a.submitted_at LIMIT 500",
+    )
+    .bind(user_id)
+    .fetch_all(db)
+    .await
+}
+
+// ---------- Mã đề (M40) ----------
+
+/// Thay toàn bộ bộ mã đề của đề.
+pub async fn replace_papers(
+    conn: &mut sqlx::PgConnection,
+    exam_id: Uuid,
+    papers: &[(String, Vec<super::model::PaperItem>)],
+) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM exam_papers WHERE exam_id = $1").bind(exam_id).execute(&mut *conn).await?;
+    for (i, (code, items)) in papers.iter().enumerate() {
+        sqlx::query("INSERT INTO exam_papers (exam_id, position, code, items) VALUES ($1, $2, $3, $4)")
+            .bind(exam_id)
+            .bind(i as i32)
+            .bind(code)
+            .bind(Json(items))
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn papers<'e, E: PgExecutor<'e>>(db: E, exam_id: Uuid) -> sqlx::Result<Vec<super::model::PaperRow>> {
+    sqlx::query_as::<_, super::model::PaperRow>(
+        "SELECT id, code, items, created_at FROM exam_papers WHERE exam_id = $1 ORDER BY position",
+    )
+    .bind(exam_id)
+    .fetch_all(db)
+    .await
 }
