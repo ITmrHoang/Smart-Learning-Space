@@ -12,6 +12,7 @@ pub mod files;
 pub mod flashcards;
 pub mod groups;
 pub mod guardians;
+pub mod lesson_plans;
 pub mod lessons;
 pub mod live;
 pub mod notifications;

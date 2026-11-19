@@ -4,6 +4,7 @@ use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
 use super::model::{Lesson, LessonRevision};
+use crate::modules::files::FileView;
 
 /// Link video: chỉ nhận http(s).
 pub fn validate_http_url(value: &str) -> Result<(), ValidationError> {
@@ -36,6 +37,9 @@ pub struct LessonInput {
     #[serde(default)]
     #[validate(length(max = 20, message = "Tối đa 20 danh mục."))]
     pub tag_ids: Vec<Uuid>,
+    /// Tài liệu đính kèm (file mục đích `attachment`, M37).
+    #[serde(default)]
+    pub attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -68,6 +72,8 @@ pub struct LessonResponse {
     pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Tài liệu đính kèm (link có chữ ký) — điền ở service.
+    pub attachments: Vec<FileView>,
 }
 
 impl From<Lesson> for LessonResponse {
@@ -87,6 +93,7 @@ impl From<Lesson> for LessonResponse {
             archived: l.archived_at.is_some(),
             created_at: l.created_at,
             updated_at: l.updated_at,
+            attachments: Vec::new(),
         }
     }
 }
@@ -146,6 +153,8 @@ pub struct PublishedLesson {
     pub video_url: Option<String>,
     pub duration_minutes: Option<i32>,
     pub published_at: DateTime<Utc>,
+    /// Tài liệu đính kèm của bản xuất bản — điền ở service.
+    pub attachments: Vec<FileView>,
 }
 
 impl From<LessonRevision> for PublishedLesson {
@@ -159,6 +168,7 @@ impl From<LessonRevision> for PublishedLesson {
             video_url: r.video_url,
             duration_minutes: r.duration_minutes,
             published_at: r.published_at,
+            attachments: Vec::new(),
         }
     }
 }

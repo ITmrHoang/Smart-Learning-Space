@@ -63,6 +63,8 @@ Backend là một *modular monolith* gồm 3 crate:
 | `hui-flashcard` (trong H-UI) | Thẻ ghi nhớ lật được (Markdown + công thức), 4 nút tự chấm Quên / Khó / Được / Dễ cho ôn tập lặp lại ngắt quãng |
 | `hui-whiteboard` (trong H-UI) | Bảng vẽ cho dạy trực tuyến (bút, hình, chữ, tẩy, nhiều trang, hoàn tác), phát thao tác để đồng bộ giữa các máy trong phòng, công cụ ƒ vẽ đồ thị hàm số lên bảng |
 | `hui-plot` (trong H-UI) | Đồ thị hàm số từ công thức gõ tự nhiên (`y = 2x + 1`, miền nghiệm, điểm, tham số có thanh trượt), kéo / phóng to; trong nội dung Markdown dùng khối ` ```plot ` |
+| `hui-slides` (trong H-UI) | Trình chiếu bài giảng: mỗi `<section>` là một slide 16:9 tự co theo khung, chuyển bằng phím ← → / Space / vuốt, toàn màn hình, xem lưới. Bài học tách slide ở dòng `---`; phòng live dùng để giáo viên chiếu, học sinh xem theo |
+| Xuất Word (`src/utils/docx/`, tự viết, không thư viện) | Giáo án → file `.docx` ngay trên trình duyệt: Markdown của H-UI → WordprocessingML, công thức MathML → OMML (sửa được trong Word), đồ thị → ảnh PNG, ảnh trong bài nhúng vào file; khổ A4, lề 3 / 2 / 2 / 2 cm, Times New Roman 13. Trang in riêng để "In → Lưu PDF" |
 | **livekit-client** 2.23 | Kết nối trình duyệt với phòng LiveKit: video, âm thanh, chia sẻ màn hình, kênh dữ liệu (giơ tay, chat, bình chọn, bảng) |
 | **PWA** (manifest + service worker tự viết, không thư viện) | Cài ứng dụng lên màn hình chính điện thoại / máy tính (nút "Cài ứng dụng"), mở cửa sổ riêng; mất mạng thì hiện trang "Bạn đang ngoại tuyến". Service worker không lưu dữ liệu / API (chỉ trang ngoại tuyến + icon) nên không bao giờ giữ bản cũ của ứng dụng. Cần HTTPS khi chạy thật |
 | **Vitest** + **jsdom** | Unit test cho API client, kiểm tra quyền, tiện ích SSO… |
@@ -75,7 +77,7 @@ Backend là một *modular monolith* gồm 3 crate:
 | **Valkey** | 9.1.3 | Bộ nhớ đệm key-value (bản mã nguồn mở của Redis): đếm số lần đăng nhập sai, gửi OTP… để giới hạn tần suất |
 | **RabbitMQ** | 4.4.0 | Hàng đợi việc: API trả lời ngay, việc chậm (gửi email, sau này chuyển mã video, đọc file đề) để worker làm sau. Trang quản trị: http://127.0.0.1:15672 |
 | **Mailpit** | 1.33.0 | Hộp thư giả khi dev: bắt mọi email worker gửi để xem OTP / link tại http://127.0.0.1:8025, không gửi ra ngoài |
-| **Garage** | 2.5.0 | Lưu file tương thích S3, tự host: ảnh trong bài học / câu hỏi / hỏi đáp, ảnh / PDF bài làm của học sinh, ảnh đại diện giáo viên. Trình duyệt upload / tải thẳng bằng presigned URL (API chỉ ký link và kiểm tra file), đi qua đường dẫn `/files/*` cùng domain |
+| **Garage** | 2.5.0 | Lưu file tương thích S3, tự host: ảnh trong bài học / câu hỏi / hỏi đáp, ảnh / PDF bài làm của học sinh, ảnh đại diện giáo viên, tài liệu đính kèm bài học / giáo án (PDF, Word, Excel, PowerPoint). Trình duyệt upload / tải thẳng bằng presigned URL (API chỉ ký link và kiểm tra file), đi qua đường dẫn `/files/*` cùng domain |
 | **LiveKit** | 1.13.11 | Phòng học trực tuyến tự host (WebRTC SFU): video / âm thanh / màn hình đi thẳng giữa trình duyệt và LiveKit, api chỉ cấp token theo vai trò và đổi quyền phát. Dev: `ws://127.0.0.1:7880` |
 
 ### Bảo mật đăng nhập

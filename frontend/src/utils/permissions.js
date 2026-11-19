@@ -41,6 +41,7 @@ export const MENU = [
     items: [
       { to: '/day-hoc/lich', label: 'Lịch dạy', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/lop-hoc', label: 'Lớp học', permission: P.TEACHING_MANAGE },
+      { to: '/day-hoc/giao-an', label: 'Giáo án', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/bai-hoc', label: 'Bài học', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/cau-hoi', label: 'Ngân hàng câu hỏi', permission: P.TEACHING_MANAGE },
       { to: '/day-hoc/de', label: 'Đề ôn tập / kiểm tra', permission: P.TEACHING_MANAGE },

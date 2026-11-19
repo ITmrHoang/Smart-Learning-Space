@@ -128,3 +128,23 @@ export function isAnswered(item) {
   if (item.kind === 'true_false') return Object.keys(a.truth || {}).length === item.options.length;
   return (a.selected || []).length > 0;
 }
+
+/** Câu hỏi của giáo viên → dạng câu trong bài làm, kèm đáp án (để xem bằng QuestionView). */
+export function questionAsItem(q, { withContent = false } = {}) {
+  return {
+    position: 0,
+    kind: q.kind,
+    content: withContent ? q.content : '',
+    points: 1,
+    options: q.options,
+    answer: null,
+    checked: true,
+    result: {
+      isCorrect: true,
+      score: 1,
+      correct: q.options.filter((o) => o.correct).map((o) => o.id),
+      accepted: q.accepted,
+      explanation: q.explanation,
+    },
+  };
+}

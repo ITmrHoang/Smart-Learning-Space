@@ -18,6 +18,10 @@ describe('upload', () => {
     expect(fileType({ type: '', name: 'de.docx' })).toBe(DOCX);
     expect(checkFile({ type: 'application/msword', name: 'de.doc', size: 10 }, 'import')).toMatch(/\.docx/);
     expect(checkFile({ type: DOCX, name: 'de.docx', size: 21 * 1024 * 1024 }, 'import')).toBe('File tối đa 20 MB.');
+    // Tài liệu đính kèm bài học
+    expect(checkFile({ type: 'application/pdf', name: 'phieu.pdf', size: 10 }, 'attachment')).toBe('');
+    expect(checkFile({ type: '', name: 'Bai giang.PPTX', size: 10 }, 'attachment')).toBe('');
+    expect(checkFile({ type: 'image/png', name: 'a.png', size: 10 }, 'attachment')).toMatch(/PowerPoint/);
   });
 
   it('chữ thay thế + Markdown ảnh, định dạng dung lượng', () => {

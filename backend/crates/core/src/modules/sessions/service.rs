@@ -22,7 +22,7 @@ use crate::{
     modules::{
         classes::service as classes,
         groups,
-        lessons::service as lessons,
+        lessons::{dto as lessons_dto, service as lessons},
         notifications::{self, NotificationKind},
     },
     security::{Actor, Permission},
@@ -728,6 +728,26 @@ pub async fn live_staff(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<
         return Err(AppError::conflict("NOT_LIVE_ROOM", "Buổi học này dùng link họp ngoài."));
     }
     Ok(s)
+}
+
+/// Bài đã gắn vào buổi học (bản đã xuất bản) cho người được vào buổi: xem trước / sau buổi, trình chiếu trong phòng học.
+pub async fn session_lesson(
+    ctx: &AppContext,
+    actor: &Actor,
+    id: Uuid,
+    lesson_id: Uuid,
+) -> AppResult<lessons_dto::PublishedLesson> {
+    viewable(ctx, actor, id).await?;
+    let attached: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM session_lessons WHERE session_id = $1 AND lesson_id = $2)")
+            .bind(id)
+            .bind(lesson_id)
+            .fetch_one(&ctx.db)
+            .await?;
+    if !attached {
+        return Err(AppError::not_found("Không tìm thấy bài học."));
+    }
+    lessons::published(ctx, lesson_id).await?.ok_or_else(|| AppError::not_found("Bài chưa xuất bản."))
 }
 
 /// Buổi học người xem được vào (xem lại bảng / bình chọn sau buổi).

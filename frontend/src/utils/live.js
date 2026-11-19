@@ -23,6 +23,8 @@
  */
 
 export const BOARD_SNAPSHOT_TOPIC = 'board-snapshot';
+/** Bài trình chiếu giáo viên gửi cho cả lớp (nội dung dài nên đi text stream, không đi gói dữ liệu). */
+export const SLIDES_TOPIC = 'slides-deck';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

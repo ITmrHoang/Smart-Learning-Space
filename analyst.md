@@ -3,6 +3,7 @@
 > **Trạng thái:** v0.4 (2026-11-05) — kiến trúc đã đủ để bắt đầu code theo module (`docs/implementation-plan.md`); các câu còn mở ở mục 8 không chặn module đầu.
 > v0.3: đổi tên gọi nội dung (bỏ "chủ đề"), lộ trình sửa được, lên lịch kiểu Meet, import MathType/PDF thành ảnh, bảng thông minh có hình khối và đồ thị.
 > v0.4: môn học + lớp học là chính, bài và buổi nằm trong lộ trình (bỏ tầng "khóa học"); lớp 1–12 + lớp riêng; danh mục là nhãn trong môn; tương tác live giơ tay → popup bảng.
+> v0.5 (2026-11-19): phân tích nhu cầu của giáo viên dạy thêm (ưu tiên Toán) và lộ trình đợt 8–12 — mục 9.
 > Yêu cầu nghiệp vụ: `requirements.md`. Sau khi chốt → viết đặc tả chi tiết (schema DB, danh sách API, wireframe) → mới bắt đầu code.
 
 ---
@@ -821,3 +822,71 @@ Các con số dưới đây là **ước lượng sơ bộ**, chưa đo thực t
 4. **Bảng thông minh**: WB1 làm cùng đợt live (G5); WB2 làm ngay sau theo thứ tự đồ thị → hình 2D → hình khối → bảng riêng từng học sinh — thứ tự này có ổn không?
 5. ~~Câu "Ngoài…" bị cắt~~ → chỉ là xuống dòng.
 6. ~~Mô tả chi tiết tương tác live~~ → đã có phần chính (giơ tay → popup bảng). Còn tương tác nào khác ngoài các mục đã liệt kê không?
+
+---
+
+## 9. Giáo viên dạy thêm: còn thiếu gì, lộ trình đợt 8–12 (2026-11-19)
+
+**Câu hỏi:** một giáo viên Việt Nam dùng hệ thống hằng ngày cho **các lớp học thêm** của mình thì còn thiếu gì? Họ cần
+quản lý lớp, soạn giáo án và bài giảng, ra đề kiểm tra, trộn đề, làm bộ đề, giao bài online. Học sinh làm bài trên giấy
+rồi chụp ảnh nộp để giáo viên chấm. Dạy online ưu tiên Toán (bảng vẽ + tương tác), các môn khác làm sau.
+
+**Đã chốt (2026-11-19):**
+
+- Làm **Giáo án & bài giảng** trước (đợt 8).
+- **Chưa làm học phí.**
+- **Chưa dùng AI API:** trắc nghiệm chấm bằng thuật toán; tự luận có lời giải mẫu và công thức soạn sẵn, giáo viên tự chấm. AI để sau.
+- Liên lạc ngoài email: làm **Web Push** trước, Zalo để sau.
+
+### 9.1 Đã có sau 7 đợt (M0–M33)
+
+- Lớp học: ghi danh, trợ giảng, nhóm, lộ trình, tiến độ, báo cáo + Excel.
+- Buổi học: lặp hằng tuần, `.ics`, điểm danh có mặt / vắng. Phụ huynh nhận báo cáo qua email.
+- Bài học: Markdown + công thức + ảnh + đồ thị. Ngân hàng câu hỏi: 4 dạng câu, nhập Excel / Word.
+- Đề: kiểu THPT, có ma trận, mỗi lượt làm online trộn câu và đáp án riêng.
+- Bài tập: nộp ảnh, giáo viên vẽ nhận xét lên ảnh.
+- Phòng live: LiveKit, bảng vẽ, đồ thị (`hui-plot`), quiz một đáp án, khách. PWA.
+
+### 9.2 Còn thiếu (P1 = cần trước)
+
+| Nhu cầu | Thiếu chính |
+|---|---|
+| Giáo án, bài giảng | Giáo án có cấu trúc (mẫu CV 5512 / CV 2345 / dạy thêm), xuất Word, trang in, trình chiếu, đính kèm PDF / Word / PPT (P1) — **làm ở đợt 8**. Video upload + HLS để sau (P3) |
+| Đề, trộn đề, bộ đề | Câu tự luận + hướng dẫn chấm theo bước, câu chùm; trộn ra N mã đề + bảng đáp án + xuất Word / in; bộ đề + "giao nhanh" không phải sửa lộ trình (P1). Phiếu tô trắc nghiệm + chấm bằng ảnh / OMR thuần thuật toán (P2) |
+| Giao bài + chấm ảnh | Giáo viên chấm câu tự luận bằng ảnh, xem lời giải mẫu ngay cạnh; nhận xét mẫu, rubric; lưu lịch sử các lần nộp; gia hạn riêng; nhập điểm cho bài làm trên giấy (P1–P2) |
+| Dạy Toán online (WB2) | Lỗi mất bảng khi giáo viên tải lại trang; ảnh / PDF đề làm nền bảng; chọn – di chuyển phần tử; nền ô ly; hình học phẳng (`hui-geometry`); bàn phím công thức (`hui-math-input`); chấm trả lời ngắn có sai số / biểu thức tương đương; quiz lấy từ ngân hàng; bảng riêng từng học sinh (P1–P2). Ghi hình, phòng nhỏ, hình khối (P3) |
+| Quản lý lớp học thêm | Giáo viên tạo tài khoản học sinh không cần email, nhập danh sách từ Excel; điểm danh chi tiết (muộn, vắng có phép / không phép) + sổ điểm danh; học bù; nhận xét buổi học; sổ điểm; Web Push (P1–P2). Học phí và Zalo: chưa làm |
+| Môn khác (sau) | Hóa (`\ce{}`), Anh (nghe, ghi âm, điền từ), Văn (tự luận dài + rubric), Lý (đồ thị theo `t`, đáp số có đơn vị) |
+
+Lưu ý (chỉ để tham khảo, không phải tư vấn pháp lý): Thông tư 29/2024/TT-BGDĐT về dạy thêm yêu cầu công khai môn học,
+thời lượng, địa điểm, học phí. Khi làm phần quản lý lớp, trang công khai của lớp nên có đủ các thông tin này.
+
+### 9.3 Lộ trình
+
+| Đợt | Nội dung |
+|---|---|
+| **8** ✅ | **Giáo án & bài giảng** — M34 giáo án theo mẫu · M35 xuất Word + trang in · M36 trình chiếu (`hui-slides`) + chiếu slide trong phòng live · M37 tài liệu đính kèm |
+| 9 | Đề & chấm (không AI): câu tự luận + hướng dẫn chấm theo bước; câu chùm; trộn N mã đề + xuất Word (dùng lại bộ xuất Word của M35); bộ đề + giao nhanh; chấm tự luận bằng ảnh; nhận xét mẫu / rubric; trả lời ngắn có sai số / biểu thức tương đương (dùng `hui-plot/expr.js`); câu hỏi có tham số (P2) |
+| 10 | Bảng dạy Toán (WB2): sửa lỗi mất bảng, ảnh / PDF làm nền, chọn – di chuyển, nền ô ly, `hui-geometry`, `hui-math-input` + công thức trên bảng, quiz từ ngân hàng, bảng riêng từng học sinh |
+| 11 | Quản lý lớp học thêm: tài khoản học sinh do giáo viên tạo + nhập Excel, điểm danh chi tiết, học bù, nhận xét buổi, sổ điểm, Web Push |
+| 12 | Phiếu tô trắc nghiệm + chấm OMR từ ảnh chụp (thuật toán chạy trên trình duyệt) |
+| Sau | AI API, Zalo, học phí / cổng thanh toán, ghi hình, hình khối, môn khác |
+
+### 9.4 Thiết kế chính của đợt 8
+
+- **Giáo án** là bảng riêng `lesson_plans` (không gộp vào bài học): giáo án là tài liệu nộp tổ chuyên môn, có thông tin
+  hành chính (trường, tổ, ngày soạn / dạy, số tiết) và cấu trúc theo mẫu; bài học là nội dung học sinh xem. Giáo án
+  liên kết được tới một bài học.
+- **Khối** lưu jsonb, serde `tag = "kind"`: `section` (tiêu đề + nội dung), `activity` (hoạt động a) b) c) d) + 4 bước
+  tổ chức của CV 5512), `two_columns` (Hoạt động GV | HS của CV 2345), `problem_type` (dạng bài: phương pháp, ví dụ mẫu,
+  bài tập — kiểu giáo án dạy thêm), `questions` (phiếu học tập từ ngân hàng câu hỏi, chỉ nhận câu của chính giáo viên).
+  **Mẫu** là khung khối ban đầu, là dữ liệu thuần ở frontend → thêm mẫu không cần migration.
+- **Xuất Word ở trình duyệt**, không thêm thư viện: dùng đúng `renderMarkdown` + MathML của H-UI nên file Word giống
+  những gì giáo viên thấy; công thức → OMML (sửa được trong Word), đồ thị → ảnh PNG, ảnh `/api/files` nhúng vào file.
+  Bộ xuất này dùng lại cho xuất mã đề ở đợt 9.
+- **Trình chiếu:** dòng `---` đứng riêng trong bài học là chỗ sang slide mới (không có thì mỗi tiêu đề `#` / `##` là một
+  slide). Component mới `hui-slides` của H-UI (khung 16:9 tự co, phím, vuốt, toàn màn hình, xem lưới). Trong phòng live
+  giáo viên chọn bài đã gắn vào buổi; nội dung gửi qua text stream, số trang qua kênh dữ liệu, người vào sau nhận qua
+  snapshot.
+- **Tài liệu đính kèm** (PDF / Word / Excel / PowerPoint ≤ 20 MB) đi theo lần xuất bản của bài: học sinh thấy tài liệu
+  của bản đã xuất bản; link có chữ ký như file bài làm.

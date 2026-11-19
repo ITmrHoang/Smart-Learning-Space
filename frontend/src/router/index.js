@@ -78,6 +78,7 @@ export const routes = [
       { path: 'bai-lam/:id', name: 'attempt', component: () => import('../pages/learning/AttemptPage.vue') },
       { path: 'lich-hoc', name: 'my-schedule', component: () => import('../pages/learning/MySchedulePage.vue') },
       { path: 'buoi-hoc/:id', name: 'session', component: () => import('../pages/learning/SessionPage.vue') },
+      { path: 'buoi-hoc/:id/bai/:lessonId', name: 'session-lesson', component: () => import('../pages/learning/SessionLessonPage.vue') },
       { path: 'on-tap', name: 'review-today', component: () => import('../pages/learning/ReviewTodayPage.vue') },
       { path: 'lop-hoc/:id/the/:stepId', name: 'deck-study', component: () => import('../pages/learning/DeckStudyPage.vue') },
       { path: 'lop-hoc/:id/hoi-dap/:threadId', name: 'thread', component: () => import('../pages/learning/ThreadPage.vue') },
@@ -98,6 +99,8 @@ export const routes = [
         ['day-hoc/lop-hoc/:id', 'teach-class', () => import('../pages/teaching/ClassManagePage.vue')],
         ['day-hoc/bai-hoc', 'teach-lessons', () => import('../pages/teaching/LessonsPage.vue')],
         ['day-hoc/bai-hoc/:id', 'teach-lesson', () => import('../pages/teaching/LessonEditorPage.vue')],
+        ['day-hoc/giao-an', 'teach-plans', () => import('../pages/teaching/LessonPlansPage.vue')],
+        ['day-hoc/giao-an/:id', 'teach-plan', () => import('../pages/teaching/LessonPlanEditorPage.vue')],
         ['day-hoc/cau-hoi', 'teach-questions', () => import('../pages/teaching/QuestionBankPage.vue')],
         ['day-hoc/de', 'teach-exams', () => import('../pages/teaching/ExamsPage.vue')],
         ['day-hoc/de/:id', 'teach-exam', () => import('../pages/teaching/ExamEditorPage.vue')],
@@ -141,6 +144,19 @@ export const routes = [
     ],
   },
   // Phòng học trực tuyến: toàn màn hình (không có menu); khách vào bằng link không cần đăng nhập.
+  // Trang in giáo án, trình chiếu bài giảng: không có menu
+  {
+    path: '/day-hoc/bai-hoc/:id/trinh-chieu',
+    name: 'teach-lesson-present',
+    component: () => import('../pages/teaching/LessonPresentPage.vue'),
+    meta: { auth: true, permission: P.TEACHING_MANAGE },
+  },
+  {
+    path: '/day-hoc/giao-an/:id/in',
+    name: 'teach-plan-print',
+    component: () => import('../pages/teaching/LessonPlanPrintPage.vue'),
+    meta: { auth: true, permission: P.TEACHING_MANAGE },
+  },
   { path: '/live/:id', name: 'live-room', component: () => import('../pages/live/LiveRoomPage.vue'), meta: { auth: true } },
   { path: '/vao-hoc/:id', name: 'guest-join', component: () => import('../pages/live/GuestJoinPage.vue') },
   { path: '/trang-thai', name: 'status', component: () => import('../pages/StatusPage.vue') },

@@ -178,6 +178,7 @@ pub fn session_routes() -> Router<AppContext> {
         .route("/sessions/{id}", get(session_detail))
         .route("/sessions/{id}/rsvp", post(rsvp))
         .route("/sessions/{id}/join", post(join_session))
+        .route("/sessions/{id}/lessons/{lesson_id}", get(session_lesson))
         .route("/notifications", get(list_notifications))
         .route("/notifications/unread-count", get(unread_count))
         .route("/notifications/read-all", post(read_all))
@@ -216,6 +217,14 @@ async fn join_session(
     PathParam(id): PathParam<Uuid>,
 ) -> AppResult<Json<session_dto::JoinResponse>> {
     Ok(Json(sessions::join(&ctx, &actor, id).await?))
+}
+
+async fn session_lesson(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam((id, lesson_id)): PathParam<(Uuid, Uuid)>,
+) -> AppResult<Json<sls_core::modules::lessons::dto::PublishedLesson>> {
+    Ok(Json(sessions::session_lesson(&ctx, &actor, id, lesson_id).await?))
 }
 
 async fn list_notifications(

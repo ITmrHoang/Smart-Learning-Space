@@ -22,6 +22,8 @@ pub struct Lesson {
     pub tag_ids: Vec<Uuid>,
     /// Số phiên bản đang xuất bản.
     pub published_version: Option<i32>,
+    /// Tài liệu đính kèm `[{ fileId, name }]` (M37).
+    pub attachments: serde_json::Value,
 }
 
 /// Một lần xuất bản.
@@ -36,6 +38,7 @@ pub struct LessonRevision {
     pub video_url: Option<String>,
     pub duration_minutes: Option<i32>,
     pub published_at: DateTime<Utc>,
+    pub attachments: serde_json::Value,
 }
 
 /// Thông tin rút gọn dùng khi dựng lộ trình (bài nào, của ai, đã xuất bản chưa).

@@ -56,7 +56,7 @@
             </div>
           </div>
           <hui-markdown :value="q.content" />
-          <QuestionView v-if="expanded.has(q.id)" :item="asItem(q)" :number="1" readonly bare />
+          <QuestionView v-if="expanded.has(q.id)" :item="questionAsItem(q)" :number="1" readonly bare />
         </article>
         <hui-pagination
           class="pager"
@@ -101,7 +101,7 @@ import QuestionView from '../../components/teaching/QuestionView.vue';
 import { flattenFolders } from '../../utils/folders';
 import { usePagedList } from '../../utils/list';
 import { useMasterData } from '../../utils/masterData';
-import { LEVEL_COLORS, LEVEL_LABELS, QUESTION_KIND_LABELS, toOptions } from '../../utils/teaching';
+import { LEVEL_COLORS, LEVEL_LABELS, QUESTION_KIND_LABELS, questionAsItem, toOptions } from '../../utils/teaching';
 
 const { data: master, load: loadMaster } = useMasterData();
 const list = usePagedList((q) => teachingApi.questions(q), { q: '', subjectId: '', folderId: '', tagId: '', kind: '', level: '' });
@@ -120,26 +120,6 @@ const tagOptions = computed(() => tags.value.map((t) => ({ value: t.id, label: t
 const kindOptions = toOptions(QUESTION_KIND_LABELS);
 const levelOptions = toOptions(LEVEL_LABELS);
 const subjectName = (id) => master.value?.subjects.find((s) => s.id === id)?.name ?? '';
-
-/** Câu hỏi của giáo viên → dạng câu trong bài làm (để xem đáp án bằng QuestionView). */
-function asItem(q) {
-  return {
-    position: 0,
-    kind: q.kind,
-    content: '',
-    points: 1,
-    options: q.options,
-    answer: null,
-    checked: true,
-    result: {
-      isCorrect: true,
-      score: 1,
-      correct: q.options.filter((o) => o.correct).map((o) => o.id),
-      accepted: q.accepted,
-      explanation: q.explanation,
-    },
-  };
-}
 
 async function onSubjectFilter(id) {
   list.filters.tagId = '';

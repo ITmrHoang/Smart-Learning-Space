@@ -6,9 +6,14 @@ use super::model::{Lesson, LessonRef, LessonRevision};
 const LESSON_COLS: &str = "l.id, l.owner_id, l.subject_id, l.grade_id, l.title, l.summary, l.content, l.video_url, \
      l.duration_minutes, l.published_revision_id, l.has_changes, l.archived_at, l.created_at, l.updated_at, \
      array(SELECT tag_id FROM lesson_tags t WHERE t.lesson_id = l.id) AS tag_ids, \
-     (SELECT version FROM lesson_revisions r WHERE r.id = l.published_revision_id) AS published_version";
+     (SELECT version FROM lesson_revisions r WHERE r.id = l.published_revision_id) AS published_version, l.attachments";
+
+const REVISION_COLS: &str =
+    "id, lesson_id, version, title, summary, content, video_url, duration_minutes, published_at, attachments";
 
 pub struct LessonFields<'a> {
+    /// Tài liệu đính kèm đã kiểm tra (`[{ fileId, name }]`, M37).
+    pub attachments: &'a serde_json::Value,
     pub subject_id: Uuid,
     pub grade_id: Option<Uuid>,
     pub title: &'a str,
@@ -76,8 +81,8 @@ pub async fn find<'e, E: PgExecutor<'e>>(db: E, id: Uuid) -> sqlx::Result<Option
 
 pub async fn insert<'e, E: PgExecutor<'e>>(db: E, owner_id: Uuid, f: &LessonFields<'_>) -> sqlx::Result<Uuid> {
     sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO lessons (owner_id, subject_id, grade_id, title, summary, content, video_url, duration_minutes) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+        "INSERT INTO lessons (owner_id, subject_id, grade_id, title, summary, content, video_url, duration_minutes, attachments) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
     )
     .bind(owner_id)
     .bind(f.subject_id)
@@ -87,6 +92,7 @@ pub async fn insert<'e, E: PgExecutor<'e>>(db: E, owner_id: Uuid, f: &LessonFiel
     .bind(f.content)
     .bind(f.video_url)
     .bind(f.duration_minutes)
+    .bind(f.attachments)
     .fetch_one(db)
     .await
 }
@@ -94,7 +100,7 @@ pub async fn insert<'e, E: PgExecutor<'e>>(db: E, owner_id: Uuid, f: &LessonFiel
 pub async fn update<'e, E: PgExecutor<'e>>(db: E, id: Uuid, f: &LessonFields<'_>) -> sqlx::Result<()> {
     sqlx::query(
         "UPDATE lessons SET subject_id = $2, grade_id = $3, title = $4, summary = $5, content = $6, video_url = $7, \
-         duration_minutes = $8, has_changes = true, updated_at = now() WHERE id = $1",
+         duration_minutes = $8, attachments = $9, has_changes = true, updated_at = now() WHERE id = $1",
     )
     .bind(id)
     .bind(f.subject_id)
@@ -104,6 +110,7 @@ pub async fn update<'e, E: PgExecutor<'e>>(db: E, id: Uuid, f: &LessonFields<'_>
     .bind(f.content)
     .bind(f.video_url)
     .bind(f.duration_minutes)
+    .bind(f.attachments)
     .execute(db)
     .await?;
     Ok(())
@@ -130,9 +137,9 @@ pub async fn archive<'e, E: PgExecutor<'e>>(db: E, id: Uuid) -> sqlx::Result<()>
 /// Chép bản nháp thành phiên bản mới, trỏ bài tới phiên bản đó. Trả số phiên bản.
 pub async fn publish(conn: &mut sqlx::PgConnection, id: Uuid, by: Uuid) -> sqlx::Result<i32> {
     let (rev_id, version) = sqlx::query_as::<_, (Uuid, i32)>(
-        "INSERT INTO lesson_revisions (lesson_id, version, title, summary, content, video_url, duration_minutes, published_by) \
+        "INSERT INTO lesson_revisions (lesson_id, version, title, summary, content, video_url, duration_minutes, published_by, attachments) \
          SELECT l.id, COALESCE((SELECT max(version) FROM lesson_revisions r WHERE r.lesson_id = l.id), 0) + 1, \
-                l.title, l.summary, l.content, l.video_url, l.duration_minutes, $2 \
+                l.title, l.summary, l.content, l.video_url, l.duration_minutes, $2, l.attachments \
          FROM lessons l WHERE l.id = $1 RETURNING id, version",
     )
     .bind(id)
@@ -148,23 +155,19 @@ pub async fn publish(conn: &mut sqlx::PgConnection, id: Uuid, by: Uuid) -> sqlx:
 }
 
 pub async fn revisions<'e, E: PgExecutor<'e>>(db: E, lesson_id: Uuid) -> sqlx::Result<Vec<LessonRevision>> {
-    sqlx::query_as::<_, LessonRevision>(
-        "SELECT id, lesson_id, version, title, summary, content, video_url, duration_minutes, published_at \
-         FROM lesson_revisions WHERE lesson_id = $1 ORDER BY version DESC",
-    )
+    sqlx::query_as::<_, LessonRevision>(crate::sql!(
+        "SELECT {REVISION_COLS} FROM lesson_revisions WHERE lesson_id = $1 ORDER BY version DESC"
+    ))
     .bind(lesson_id)
     .fetch_all(db)
     .await
 }
 
 pub async fn find_revision<'e, E: PgExecutor<'e>>(db: E, id: Uuid) -> sqlx::Result<Option<LessonRevision>> {
-    sqlx::query_as::<_, LessonRevision>(
-        "SELECT id, lesson_id, version, title, summary, content, video_url, duration_minutes, published_at \
-         FROM lesson_revisions WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
+    sqlx::query_as::<_, LessonRevision>(crate::sql!("SELECT {REVISION_COLS} FROM lesson_revisions WHERE id = $1"))
+        .bind(id)
+        .fetch_optional(db)
+        .await
 }
 
 /// Thông tin rút gọn của nhiều bài (dựng lộ trình).

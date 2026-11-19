@@ -3,23 +3,33 @@
  * - `content`: ảnh trong nội dung (bài học, câu hỏi, hỏi đáp, hồ sơ) — tối đa 5 MB.
  * - `homework`: ảnh / PDF bài làm — tối đa 15 MB; ảnh chụp điện thoại quá lớn được thu nhỏ trước khi gửi.
  * - `import`: file Word (.docx) đề câu hỏi — tối đa 20 MB; API đọc một lần rồi xóa.
+ * - `attachment`: tài liệu đính kèm bài học / giáo án (PDF, Word, Excel, PowerPoint) — tối đa 20 MB.
  */
 import { fileApi } from '../api';
 
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 export const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-export const LIMITS = { content: 5 * 1024 * 1024, homework: 15 * 1024 * 1024, import: 20 * 1024 * 1024 };
+export const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+export const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+export const ATTACHMENT_TYPES = ['application/pdf', DOCX, XLSX, PPTX];
+export const ATTACHMENT_ACCEPT = '.pdf,.docx,.xlsx,.pptx';
+export const LIMITS = { content: 5 * 1024 * 1024, homework: 15 * 1024 * 1024, import: 20 * 1024 * 1024, attachment: 20 * 1024 * 1024 };
 
-/** Loại file: máy không cài Office có thể báo rỗng cho .docx → đoán theo đuôi. */
+const BY_EXTENSION = { pdf: 'application/pdf', docx: DOCX, xlsx: XLSX, pptx: PPTX };
+
+/** Loại file: máy không cài Office có thể báo rỗng cho .docx / .xlsx / .pptx → đoán theo đuôi. */
 export function fileType(file) {
   if (file?.type) return file.type;
-  return /\.docx$/i.test(file?.name ?? '') ? DOCX : '';
+  const ext = /\.([a-z0-9]+)$/i.exec(file?.name ?? '')?.[1]?.toLowerCase();
+  return BY_EXTENSION[ext] ?? '';
 }
 
 /** Lỗi trước khi upload ('' = hợp lệ). */
 export function checkFile(file, purpose) {
   if (purpose === 'import') {
     if (fileType(file) !== DOCX) return 'Chỉ nhận file Word .docx (file .doc cũ: mở bằng Word rồi lưu lại dạng .docx).';
+  } else if (purpose === 'attachment') {
+    if (!ATTACHMENT_TYPES.includes(fileType(file))) return 'Chỉ nhận PDF, Word (.docx), Excel (.xlsx) hoặc PowerPoint (.pptx).';
   } else {
     const types = purpose === 'homework' ? [...IMAGE_TYPES, 'application/pdf'] : IMAGE_TYPES;
     if (!types.includes(file?.type)) {

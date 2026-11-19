@@ -21,6 +21,9 @@
       <section class="panel">
         <hui-markdown :value="data.lesson.content" />
       </section>
+      <section v-if="data.lesson.attachments?.length" class="panel">
+        <AttachmentList :modelValue="data.lesson.attachments" />
+      </section>
       <div class="row between">
         <hui-button v-if="data.prevStepId" variant="outline" @hui-click="go(data.prevStepId)">← Bài trước</hui-button>
         <span v-else />
@@ -56,6 +59,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { learnApi } from '../../api';
 import AskQuestionModal from '../../components/learning/AskQuestionModal.vue';
+import AttachmentList from '../../components/teaching/AttachmentList.vue';
 import { formatDateTime } from '../../utils/form';
 import { videoEmbed } from '../../utils/teaching';
 

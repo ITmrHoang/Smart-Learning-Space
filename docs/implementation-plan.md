@@ -359,6 +359,71 @@ Migration `20261118000001_word_import.sql` (`files.purpose` thêm `import`, cộ
 
 **Để sau:** phương trình ẩn / đường tròn trên `hui-plot`, hình học (`hui-geometry`) và hình khối (`hui-solid`) của WB2; nhập đề từ PDF; xem lại bài học ngoại tuyến (lưu nội dung bài vào bộ nhớ máy); thông báo đẩy (Web Push) cho PWA; nhắc lịch buổi học cho trợ giảng qua email.
 
+## Đợt 8 — Giáo án & bài giảng (bắt đầu 2026-11-19)
+
+> Yêu cầu: phân tích giáo viên dạy thêm (ưu tiên Toán) còn thiếu gì → phân tích + lộ trình đợt 8–12 ở `analyst.md` mục 9.
+> Đã chốt: làm **Giáo án & bài giảng** trước; chưa làm học phí; chưa dùng AI API (trắc nghiệm chấm bằng thuật toán,
+> tự luận có lời giải mẫu, giáo viên tự chấm); liên lạc: Web Push trước, Zalo sau.
+
+| Module | Nội dung | Trạng thái |
+|---|---|---|
+| **M34** | **Giáo án theo mẫu**: CV 5512 (mục tiêu → thiết bị → 4 hoạt động Mở đầu / Hình thành kiến thức / Luyện tập / Vận dụng, mỗi hoạt động có a) Mục tiêu b) Nội dung c) Sản phẩm d) Tổ chức thực hiện 4 bước), CV 2345 (yêu cầu cần đạt, đồ dùng, bảng hai cột GV / HS), dạy thêm (kiến thức cần nhớ, các dạng bài: phương pháp — ví dụ mẫu — bài tập, bài về nhà), trống. Khối: mục, hoạt động, hai cột, dạng bài, câu hỏi từ ngân hàng (có / không kèm đáp án). Thông tin chung (trường, tổ, giáo viên, số tiết, ngày soạn / dạy, lớp) tự điền từ giáo án gần nhất; liên kết bài học; sao chép ("dùng lại giáo án năm trước"); lưu trữ; tự lưu sau 2 giây | ✅ Xong (2026-11-19) |
+| **M35** | **Xuất Word + trang in**: file `.docx` tạo ngay trên trình duyệt (không thư viện): bảng thông tin đầu trang, tên bài, các khối, câu hỏi; đáp án + lời giải ở phụ lục cuối; công thức → Equation của Word (OMML); đồ thị → ảnh PNG; ảnh trong bài nhúng vào file. A4, lề trái 3 cm / còn lại 2 cm, Times New Roman 13, số trang ở chân trang. Trang in A4 riêng (`/day-hoc/giao-an/:id/in`) để "In → Lưu PDF" | ✅ Xong (2026-11-19) |
+| **M36** | **Trình chiếu**: H-UI thêm `hui-slides` (khung 1280 × 720 tự co, ← → / Space / PageUp / PageDown / Home / End, vuốt, F toàn màn hình, G xem lưới, thanh tiến độ + số trang). Bài học: dòng `---` đứng riêng là chỗ sang slide mới (không có thì mỗi tiêu đề `#` / `##` là một slide). Trang trình chiếu bản nháp cho giáo viên; học sinh mở bài đã gắn vào buổi học (đọc / trình chiếu). Phòng live: chế độ **📑 Slide** — giáo viên chọn bài của buổi, học sinh / khách xem theo trang của giáo viên, người vào sau nhận qua snapshot | ✅ Xong (2026-11-19) |
+| **M37** | **Tài liệu đính kèm**: PDF / Word / Excel / PowerPoint tới 20 MB, tối đa 10 file cho bài học và giáo án; tài liệu đi theo lần xuất bản (học sinh thấy tài liệu của bản đã xuất bản); link có chữ ký; PDF mở trong tab mới, file khác tải về | ✅ Xong (2026-11-19) |
+
+### Kết quả đợt 8 (2026-11-19)
+
+Migration `20261119000001_lesson_plans_attachments.sql`: bảng `lesson_plans` (`template` cv5512 / cv2345 / day_them /
+blank, `info` + `blocks` + `attachments` jsonb, `lesson_id` → SET NULL khi xóa bài, `copied_from`, `archived_at`);
+`files.purpose` thêm `attachment`; cột `attachments` jsonb (`[{fileId, name}]`) cho `lessons` và `lesson_revisions`.
+
+| Phần | Mã |
+|---|---|
+| H-UI | `src/components/hui-slides/{hui-slides.js, hui-slides.css, hui-slides.stories.js, index.js}`, `test/slides.test.js`, nhóm CDN `learning`, export ở `src/index.js` + `package.json`, changeset `slides.md` |
+| Backend | Module mới `lesson_plans` (khối serde `tag = "kind"`, giới hạn 80 khối / 20.000 ký tự mỗi trường / 60 dòng bảng / 100 câu hỏi, câu hỏi và bài liên kết phải của chính giáo viên); `files` (`Purpose::Attachment`, kiểm tra `%PDF` / `PK`, `check_attachments`, `attachment_views`); `lessons` (tài liệu ở bản nháp + chép vào bản xuất bản); `sessions::session_lesson` |
+| Frontend | `utils/lessonPlan.js` (mẫu, khối, payload), `utils/lessonPlanRender.js` (giáo án → DOM dùng chung cho trang in và Word), `utils/docx/{zip, omml, fromDom, document}.js`, `utils/slides.js`; `components/teaching/{LessonSlides, AttachmentList}.vue`; trang `teaching/{LessonPlansPage, LessonPlanEditorPage, LessonPlanPrintPage, LessonPresentPage}.vue`, `learning/SessionLessonPage.vue`; sửa `LessonEditorPage` (nút Trình chiếu, gợi ý `---`, tài liệu), `LessonViewPage` + `SessionPage` (tài liệu, link bài của buổi), `LiveRoom.vue` (chế độ Slide), menu "Giáo án" |
+
+| API | Mô tả |
+|---|---|
+| `GET\|POST /api/teaching/lesson-plans` | Danh sách giáo án của mình (lọc `q` không dấu, `subjectId`, `gradeId`; có số khối) / tạo |
+| `GET\|PUT\|DELETE /api/teaching/lesson-plans/{id}` | Xem (kèm tên bài liên kết, tài liệu) / sửa / lưu trữ — giáo viên khác nhận 404 |
+| `POST /api/teaching/lesson-plans/{id}/copy` | Sao chép thành giáo án mới "(bản sao)", ghi `copiedFrom` |
+| `POST /api/files` (`purpose: "attachment"`) | Ký link upload tài liệu; bài học / giáo án gửi `attachmentIds` |
+| `GET /api/sessions/{id}/lessons/{lessonId}` | Bản đã xuất bản (kèm tài liệu) của bài gắn vào buổi — chỉ người xem được buổi; bài không thuộc buổi / chưa xuất bản → 404 |
+
+**Quyết định khi làm:**
+
+| Chủ đề | Quyết định |
+|---|---|
+| Giáo án tách khỏi bài học | Giáo án là hồ sơ nộp tổ chuyên môn (thông tin hành chính, cấu trúc theo công văn), bài học là nội dung học sinh xem → bảng riêng, liên kết tới bài học khi cần. Mẫu là khung khối ban đầu viết ở frontend → thêm / sửa mẫu không cần migration |
+| Khối câu hỏi | Lưu `questionIds`; trang soạn / in / Word tải từng câu qua API câu hỏi có sẵn (có cache) → không cần API "xem trước câu hỏi" riêng như dự kiến |
+| Word ở trình duyệt | Dùng đúng bộ vẽ Markdown + MathML của H-UI → Word giống màn hình, backend không phải viết lại bộ đọc Markdown / LaTeX. Zip kiểu STORE (không nén) — file lớn hơn một chút nhưng không cần thư viện nén; danh sách dùng ký tự đầu dòng (chưa dùng numbering của Word). Bộ xuất dùng lại cho mã đề ở đợt 9 |
+| Slide từ bài học | Không tạo loại nội dung mới: một bài vừa đọc được vừa chiếu được, tách ở `---` (hoặc tiêu đề). Slide dài hơn khung thì cuộn trong slide thay vì bị cắt |
+| Slide trong phòng live | Nội dung bài gửi một lần qua text stream (có thể dài, chứa công thức / đồ thị), mỗi lần chuyển trang chỉ gửi `{t: 'slide', index}` qua kênh dữ liệu; học sinh chỉ nhận lệnh từ giáo viên / trợ giảng; snapshot cho người vào sau có thêm `slides` |
+| Tài liệu theo bản xuất bản | Sửa tài liệu ở bản nháp không làm học sinh mất / thấy trước tài liệu; xuất bản mới chép sang. Link có chữ ký (như bài làm) vì tài liệu chỉ cho người được xem bài |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 78 / 78 đạt (1 bỏ qua: test Garage thật) — thêm 2 cho giáo án: khối đọc đúng từ JSON của giao diện (cả 5 loại), giới hạn khối / độ dài |
+| Backend integration test | 101 / 101 đạt — thêm 2: giáo án (tạo theo mẫu, sửa, tìm không dấu, sao chép kèm tài liệu, lưu trữ; giáo viên khác 404; câu hỏi / tài liệu của người khác, mẫu lạ, quá nhiều khối bị từ chối; link tài liệu có chữ ký); bài của buổi + tài liệu (upload qua kho trong bộ nhớ; bài chưa xuất bản 404; người không được mời 404; bài không gắn vào buổi 404; thêm tài liệu ở bản nháp thì học sinh vẫn thấy tài liệu của bản đã xuất bản, xuất bản lại mới thấy; ảnh nội dung không dùng làm tài liệu được) |
+| `cargo fmt --check`, `cargo clippy -D warnings` | Đạt (chạy `cargo fmt` cho file mới); `cargo test` chạy với `-j 2` vì máy dev hết bộ nhớ ảo khi biên dịch song song nhiều file test |
+| Frontend (Vitest) | 60 / 60 đạt (thêm: mẫu giáo án tạo đúng khối, payload; tách slide ở `---` / tiêu đề, bỏ qua `---` trong khối code; zip đọc ngược + CRC32, MathML → OMML (phân số, căn, mũ / chỉ số, hệ phương trình, ma trận), DOM → Word (tiêu đề, bảng, công thức, ảnh); loại file tài liệu); `npm run build` đạt |
+| H-UI | `hui-slides`: 5 unit test + 3 story test. Chạy đủ các bước CI ở máy: build, types, CDN, trang mẫu, 222 file / 1609 test (gồm story), kích thước — đạt |
+| Trình duyệt | **Giáo án:** tạo theo mẫu CV 5512 → soạn có công thức, đồ thị, khối câu hỏi → "Đã lưu lúc …"; trang in hiện đúng khổ A4; file Word tạo trong trình duyệt có đủ 8 phần, 1 ảnh (đồ thị), 2 công thức OMML, XML hợp lệ. **Trình chiếu:** bài 4 slide (tiêu đề, công thức, đồ thị, luyện tập) → phím → / End / Home chuyển đúng. **Tài liệu:** chọn file ở trang soạn bài → .docx được thêm, .exe bị từ chối kèm thông báo; học sinh mở bài của buổi → thấy "Phiếu học tập số 1.pdf", link có chữ ký trả `application/pdf`. **Phòng live (LiveKit thật):** giáo viên chọn "📑 Slide" → chọn bài; khách vào sau (link khách, đã duyệt) nhận đủ 4 slide, không có nút chuyển; giáo viên sang slide 3 → tab khách sang slide 3, khách bấm phím không đổi trang. Sửa khi thử: `hui-slides` đặt trong grid / flex làm trang tràn ngang (khung 1280px đòi bề rộng tối thiểu + viền 2px) → khung đặt `position: absolute`, `box-sizing: border-box`, thêm test |
+
+**Chưa thử được:** nút "Toàn màn hình" (pane của ứng dụng chặn `requestFullscreen`: "Permissions check failed") — thử
+trên Chrome / Edge thường. Mở file Word xuất ra bằng Microsoft Word / LibreOffice thật (máy có Word, cần bạn đồng ý mới
+mở ứng dụng của bạn) — đã kiểm tra cấu trúc file trong trình duyệt. Tài khoản học sinh thật trong phòng live (đã thử
+bằng khách; học sinh và khách dùng chung đường nhận slide).
+
+**Dữ liệu thử thêm trong DB dev:** `gv.lan` có 1 giáo án mẫu CV 5512 và bài "Bài 3. Phương trình bậc hai (trình chiếu)"
+(đã xuất bản, 4 slide, 1 PDF đính kèm). Lớp "Lớp thử trình chiếu (đợt 8)" đã lưu trữ, buổi thử đã hủy.
+
+**Để sau:** đánh số danh sách kiểu Word (numbering) trong file xuất; xuất bài học / phiếu bài tập ra Word (bộ xuất đã
+có, chỉ cần nút); ghi chú của giáo viên cho từng slide (presenter notes); đồ thị trong Markdown tự chọn khung theo đồ thị
+(hiện khung mặc định có thể cắt mất đỉnh parabol — viết `x: -3 .. 5` / khung trong khối `plot` để chỉnh).
+
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)
 
 Thiết kế: `analyst.md` mục "Tách việc nặng, AI, live và chạy nhiều máy". Cách chạy: `README.md` mục "Triển khai".

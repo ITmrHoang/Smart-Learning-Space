@@ -7,6 +7,7 @@
       </div>
       <div class="row">
         <hui-tag v-if="lesson" :color="statusColor">{{ statusText }}</hui-tag>
+        <RouterLink v-if="lesson" :to="{ name: 'teach-lesson-present', params: { id: lesson.id } }" target="_blank" class="small" title="Dòng --- trong nội dung là chỗ sang slide mới">Trình chiếu</RouterLink>
         <hui-button variant="outline" :loading="loading" @hui-click="save">Lưu bản nháp</hui-button>
         <hui-button v-if="lesson" :loading="publishing" :disabled="!canPublish" @hui-click="publish">Xuất bản</hui-button>
       </div>
@@ -30,6 +31,9 @@
       </div>
       <hui-textarea label="Tóm tắt" :rows="2" :value="form.summary" :error="fields.summary" @input="form.summary = $event.detail.value" />
       <MarkdownEditor v-model="form.content" label="Nội dung bài" :rows="18" :error="fields.content" placeholder="# Tiêu đề&#10;&#10;Nội dung, công thức $\sqrt{2}$…" />
+      <p class="muted small">Trình chiếu: dòng <code>---</code> đứng riêng là chỗ sang slide mới (không có thì mỗi tiêu đề # / ## là một slide).</p>
+      <AttachmentList v-model="form.attachments" editable />
+      <p v-if="fields.attachmentIds" class="field-error">{{ fields.attachmentIds }}</p>
     </section>
 
     <section v-if="revisions.length" class="panel">
@@ -49,6 +53,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { catalogApi, teachingApi } from '../../api';
+import AttachmentList from '../../components/teaching/AttachmentList.vue';
 import MarkdownEditor from '../../components/teaching/MarkdownEditor.vue';
 import { formatDateTime, useSubmit } from '../../utils/form';
 import { useMasterData } from '../../utils/masterData';
@@ -63,7 +68,7 @@ const lesson = ref(null);
 const revisions = ref([]);
 const tags = ref([]);
 const publishing = ref(false);
-const form = reactive({ subjectId: null, gradeId: null, tagIds: [], title: '', summary: '', content: '', videoUrl: '', durationMinutes: null });
+const form = reactive({ subjectId: null, gradeId: null, tagIds: [], title: '', summary: '', content: '', videoUrl: '', durationMinutes: null, attachments: [] });
 
 const subjectOptions = computed(() => (master.value?.subjects ?? []).map((s) => ({ value: s.id, label: s.name })));
 const gradeOptions = computed(() => (master.value?.grades ?? []).map((g) => ({ value: g.id, label: g.name })));
@@ -94,11 +99,18 @@ function apply(l) {
     content: l.content,
     videoUrl: l.videoUrl ?? '',
     durationMinutes: l.durationMinutes,
+    attachments: l.attachments ?? [],
   });
 }
 
 function payload() {
-  return { ...form, videoUrl: form.videoUrl?.trim() || null, durationMinutes: form.durationMinutes || null };
+  const { attachments, ...rest } = form;
+  return {
+    ...rest,
+    videoUrl: form.videoUrl?.trim() || null,
+    durationMinutes: form.durationMinutes || null,
+    attachmentIds: attachments.map((a) => a.id),
+  };
 }
 
 async function save() {

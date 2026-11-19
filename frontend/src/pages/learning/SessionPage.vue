@@ -72,8 +72,8 @@
           <h2 class="h3">Bài sẽ dạy</h2>
           <ul class="clean-list small">
             <li v-for="l in s.lessons" :key="l.id">
-              <RouterLink v-if="s.isOwner" :to="{ name: 'teach-lesson', params: { id: l.id } }">{{ l.name }}</RouterLink>
-              <span v-else>{{ l.name }}</span>
+              <RouterLink :to="{ name: 'session-lesson', params: { id: s.id, lessonId: l.id } }">{{ l.name }}</RouterLink>
+              <RouterLink v-if="s.isOwner" :to="{ name: 'teach-lesson', params: { id: l.id } }" class="muted small"> · sửa bài</RouterLink>
             </li>
           </ul>
         </div>

@@ -86,6 +86,14 @@ export const teachingApi = {
   publishLesson: (id) => http.post(`/teaching/lessons/${id}/publish`),
   lessonRevisions: (id) => http.get(`/teaching/lessons/${id}/revisions`),
 
+  // Giáo án (M34)
+  lessonPlans: (query) => http.get('/teaching/lesson-plans', query),
+  lessonPlan: (id) => http.get(`/teaching/lesson-plans/${id}`),
+  createLessonPlan: (data) => http.post('/teaching/lesson-plans', data),
+  updateLessonPlan: (id, data) => http.put(`/teaching/lesson-plans/${id}`, data),
+  copyLessonPlan: (id) => http.post(`/teaching/lesson-plans/${id}/copy`),
+  archiveLessonPlan: (id) => http.del(`/teaching/lesson-plans/${id}`),
+
   classes: (query) => http.get('/teaching/classes', query),
   class: (id) => http.get(`/teaching/classes/${id}`),
   createClass: (data) => http.post('/teaching/classes', data),
@@ -227,6 +235,8 @@ export const sessionApi = {
   /** response: 'yes' | 'no' */
   rsvp: (id, response) => http.post(`/sessions/${id}/rsvp`, { response }),
   join: (id) => http.post(`/sessions/${id}/join`),
+  /** Bài đã gắn vào buổi (bản đã xuất bản, kèm tài liệu) */
+  lesson: (id, lessonId) => http.get(`/sessions/${id}/lessons/${lessonId}`),
 };
 
 /** Thông báo trong app (chuông). */

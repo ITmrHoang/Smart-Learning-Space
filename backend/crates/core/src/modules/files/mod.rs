@@ -45,6 +45,8 @@ pub enum Purpose {
     Homework,
     /// File Word đề câu hỏi: API đọc một lần rồi xóa.
     Import,
+    /// Tài liệu đính kèm bài học / giáo án (PDF, Word, Excel, PowerPoint): link có chữ ký như bài làm.
+    Attachment,
 }
 
 impl Purpose {
@@ -53,6 +55,7 @@ impl Purpose {
             Self::Content => "content",
             Self::Homework => "homework",
             Self::Import => "import",
+            Self::Attachment => "attachment",
         }
     }
 
@@ -60,6 +63,7 @@ impl Purpose {
         match value {
             "homework" => Self::Homework,
             "import" => Self::Import,
+            "attachment" => Self::Attachment,
             _ => Self::Content,
         }
     }
@@ -69,6 +73,7 @@ impl Purpose {
             Self::Content => CONTENT_MAX_BYTES,
             Self::Homework => HOMEWORK_MAX_BYTES,
             Self::Import => IMPORT_MAX_BYTES,
+            Self::Attachment => ATTACHMENT_MAX_BYTES,
         }
     }
 
@@ -77,6 +82,7 @@ impl Purpose {
             Self::Content => IMAGE_TYPES.contains(&content_type),
             Self::Homework => IMAGE_TYPES.contains(&content_type) || content_type == "application/pdf",
             Self::Import => content_type == DOCX,
+            Self::Attachment => ATTACHMENT_TYPES.contains(&content_type),
         }
     }
 
@@ -87,6 +93,7 @@ impl Purpose {
             Self::Import => {
                 "Chỉ nhận file Word .docx (Word 2007 trở lên; file .doc cũ hãy mở bằng Word rồi lưu lại dạng .docx)."
             }
+            Self::Attachment => "Chỉ nhận PDF, Word (.docx), Excel (.xlsx) hoặc PowerPoint (.pptx).",
         }
     }
 }
@@ -94,6 +101,10 @@ impl Purpose {
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 pub const DOCX: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 pub const IMPORT_MAX_BYTES: i64 = 20 * 1024 * 1024;
+pub const XLSX: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+pub const PPTX: &str = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const ATTACHMENT_TYPES: [&str; 4] = ["application/pdf", DOCX, XLSX, PPTX];
+pub const ATTACHMENT_MAX_BYTES: i64 = 20 * 1024 * 1024;
 
 /// Kiểm tra vài byte đầu khớp định dạng khai báo (chống đổi đuôi file).
 pub fn magic_matches(content_type: &str, head: &[u8]) -> bool {
@@ -103,8 +114,8 @@ pub fn magic_matches(content_type: &str, head: &[u8]) -> bool {
         "image/gif" => head.starts_with(b"GIF8"),
         "image/webp" => head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP",
         "application/pdf" => head.starts_with(b"%PDF"),
-        // .docx là file zip
-        DOCX => head.starts_with(b"PK\x03\x04"),
+        // .docx / .xlsx / .pptx là file zip
+        DOCX | XLSX | PPTX => head.starts_with(b"PK\x03\x04"),
         _ => false,
     }
 }
@@ -187,6 +198,8 @@ fn object_key(purpose: Purpose, id: Uuid, name: &str, content_type: &str) -> Str
         "image/gif" => "gif",
         "image/webp" => "webp",
         DOCX => "docx",
+        XLSX => "xlsx",
+        PPTX => "pptx",
         _ => "pdf",
     };
     let now = Utc::now();
@@ -359,6 +372,48 @@ pub async fn views(ctx: &AppContext, ids: &[Uuid]) -> AppResult<HashMap<Uuid, Fi
     Ok(rows.iter().map(|r| (r.id, view(ctx, r))).collect())
 }
 
+/// Tài liệu đính kèm lưu trong jsonb của bài học / giáo án (tên giữ lại để bản xuất bản cũ vẫn hiện đúng).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentRef {
+    pub file_id: Uuid,
+    pub name: String,
+}
+
+pub const MAX_ATTACHMENTS: usize = 10;
+
+/// Kiểm tra tài liệu đính kèm: file của chính người dùng, mục đích `attachment`, đã upload xong. Giữ thứ tự, bỏ trùng.
+pub async fn check_attachments(ctx: &AppContext, owner_id: Uuid, ids: &[Uuid]) -> AppResult<Vec<AttachmentRef>> {
+    let mut unique: Vec<Uuid> = Vec::new();
+    for id in ids {
+        if !unique.contains(id) {
+            unique.push(*id);
+        }
+    }
+    if unique.len() > MAX_ATTACHMENTS {
+        return Err(AppError::field("attachmentIds", format!("Tối đa {MAX_ATTACHMENTS} tài liệu.")));
+    }
+    let rows = owned_ready(ctx, owner_id, &unique, Purpose::Attachment)
+        .await
+        .map_err(|_| AppError::field("attachmentIds", "Tài liệu không tồn tại hoặc chưa upload xong."))?;
+    Ok(rows.into_iter().map(|r| AttachmentRef { file_id: r.id, name: r.name }).collect())
+}
+
+/// Thông tin + link (có chữ ký) của tài liệu đính kèm, giữ thứ tự; file đã bị xóa thì bỏ qua.
+pub async fn attachment_views(ctx: &AppContext, refs: &[AttachmentRef]) -> AppResult<Vec<FileView>> {
+    let ids: Vec<Uuid> = refs.iter().map(|r| r.file_id).collect();
+    let mut found = views(ctx, &ids).await?;
+    Ok(refs
+        .iter()
+        .filter_map(|r| {
+            found.remove(&r.file_id).map(|mut v| {
+                v.name = r.name.clone();
+                v
+            })
+        })
+        .collect())
+}
+
 /// API tự lưu một file (ảnh lấy ra từ file Word…) thành file `ready` của `owner_id`.
 /// Cùng người, cùng mục đích, cùng nội dung (SHA-256) → dùng lại file đã có, không lưu thêm bản mới.
 pub async fn save_bytes(
@@ -446,6 +501,9 @@ mod tests {
         assert!(!Purpose::Import.allows("image/png"));
         assert!(magic_matches(DOCX, b"PK\x03\x04\x14\x00"));
         assert!(!magic_matches(DOCX, b"\xD0\xCF\x11\xE0")); // .doc cũ (OLE)
+        assert!(Purpose::Attachment.allows("application/pdf") && Purpose::Attachment.allows(PPTX));
+        assert!(!Purpose::Attachment.allows("image/png"));
+        assert!(magic_matches(XLSX, b"PK\x03\x04") && !magic_matches(XLSX, b"%PDF"));
     }
 
     #[test]

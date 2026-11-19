@@ -44,6 +44,7 @@ use uuid::Uuid;
 
 use sls_core::modules::{
     groups,
+    lesson_plans::{self as plans, LessonPlanDetail, LessonPlanInput, LessonPlanQuery, LessonPlanSummary},
     sessions::{dto as session_dto, service as sessions},
 };
 
@@ -57,6 +58,10 @@ pub fn routes() -> Router<AppContext> {
         .route("/lessons/{id}", get(get_lesson).put(update_lesson).delete(archive_lesson))
         .route("/lessons/{id}/publish", post(publish_lesson))
         .route("/lessons/{id}/revisions", get(lesson_revisions))
+        // Giáo án (M34)
+        .route("/lesson-plans", get(list_plans).post(create_plan))
+        .route("/lesson-plans/{id}", get(get_plan).put(update_plan).delete(archive_plan))
+        .route("/lesson-plans/{id}/copy", post(copy_plan))
         // Lớp học
         .route("/classes", get(list_classes).post(create_class))
         .route("/classes/{id}", get(get_class).put(update_class))
@@ -130,6 +135,58 @@ async fn archive_lesson(
     PathParam(id): PathParam<Uuid>,
 ) -> AppResult<StatusCode> {
     lessons::archive(&ctx, &actor, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------- Giáo án (M34) ----------
+
+async fn list_plans(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    QueryParams(q): QueryParams<LessonPlanQuery>,
+) -> AppResult<Json<Vec<LessonPlanSummary>>> {
+    Ok(Json(plans::list(&ctx, &actor, q).await?))
+}
+
+async fn create_plan(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    JsonBody(input): JsonBody<LessonPlanInput>,
+) -> AppResult<(StatusCode, Json<LessonPlanDetail>)> {
+    Ok((StatusCode::CREATED, Json(plans::create(&ctx, &actor, input).await?)))
+}
+
+async fn get_plan(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<Json<LessonPlanDetail>> {
+    Ok(Json(plans::get(&ctx, &actor, id).await?))
+}
+
+async fn update_plan(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<LessonPlanInput>,
+) -> AppResult<Json<LessonPlanDetail>> {
+    Ok(Json(plans::update(&ctx, &actor, id, input).await?))
+}
+
+async fn copy_plan(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<(StatusCode, Json<LessonPlanDetail>)> {
+    Ok((StatusCode::CREATED, Json(plans::copy(&ctx, &actor, id).await?)))
+}
+
+async fn archive_plan(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+) -> AppResult<StatusCode> {
+    plans::archive(&ctx, &actor, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

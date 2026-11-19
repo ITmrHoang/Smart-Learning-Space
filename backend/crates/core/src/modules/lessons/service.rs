@@ -15,6 +15,7 @@ use crate::{
     modules::{
         audit::{model::AuditEntry, service as audit},
         catalog::service as catalog,
+        files::{self, AttachmentRef},
         teachers::service as teachers,
     },
     pagination::{Page, PageRequest},
@@ -47,8 +48,20 @@ async fn validate_input(ctx: &AppContext, actor: &Actor, input: &LessonInput) ->
     catalog::ensure_tags_visible(ctx, input.subject_id, &input.tag_ids, actor.id).await
 }
 
-fn fields(input: &LessonInput) -> LessonFields<'_> {
+/// Tài liệu đính kèm lưu trong jsonb.
+fn refs_of(value: &serde_json::Value) -> Vec<AttachmentRef> {
+    serde_json::from_value(value.clone()).unwrap_or_default()
+}
+
+/// Kiểm tra tài liệu đính kèm (file của chính giáo viên, đã upload xong) → jsonb để lưu.
+async fn attachments_value(ctx: &AppContext, actor: &Actor, input: &LessonInput) -> AppResult<serde_json::Value> {
+    let refs = files::check_attachments(ctx, actor.id, &input.attachment_ids).await?;
+    serde_json::to_value(refs).map_err(AppError::internal)
+}
+
+fn fields<'a>(input: &'a LessonInput, attachments: &'a serde_json::Value) -> LessonFields<'a> {
     LessonFields {
+        attachments,
         subject_id: input.subject_id,
         grade_id: input.grade_id,
         title: input.title.trim(),
@@ -71,22 +84,28 @@ pub async fn list(ctx: &AppContext, actor: &Actor, query: LessonQuery) -> AppRes
 
 pub async fn create(ctx: &AppContext, actor: &Actor, input: LessonInput) -> AppResult<LessonResponse> {
     validate_input(ctx, actor, &input).await?;
+    let attachments = attachments_value(ctx, actor, &input).await?;
     let mut tx = ctx.db.begin().await?;
-    let id = repo::insert(&mut *tx, actor.id, &fields(&input)).await?;
+    let id = repo::insert(&mut *tx, actor.id, &fields(&input, &attachments)).await?;
     repo::set_tags(&mut tx, id, &input.tag_ids).await?;
     tx.commit().await?;
     get(ctx, actor, id).await
 }
 
 pub async fn get(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<LessonResponse> {
-    Ok(load_own(ctx, actor, id).await?.into())
+    let lesson = load_own(ctx, actor, id).await?;
+    let refs = refs_of(&lesson.attachments);
+    let mut res: LessonResponse = lesson.into();
+    res.attachments = files::attachment_views(ctx, &refs).await?;
+    Ok(res)
 }
 
 pub async fn update(ctx: &AppContext, actor: &Actor, id: Uuid, input: LessonInput) -> AppResult<LessonResponse> {
     load_own(ctx, actor, id).await?;
     validate_input(ctx, actor, &input).await?;
+    let attachments = attachments_value(ctx, actor, &input).await?;
     let mut tx = ctx.db.begin().await?;
-    repo::update(&mut *tx, id, &fields(&input)).await?;
+    repo::update(&mut *tx, id, &fields(&input, &attachments)).await?;
     repo::set_tags(&mut tx, id, &input.tag_ids).await?;
     tx.commit().await?;
     get(ctx, actor, id).await
@@ -149,5 +168,11 @@ pub async fn published(ctx: &AppContext, lesson_id: Uuid) -> AppResult<Option<Pu
     let Some(rev_id) = lesson.published_revision_id else {
         return Ok(None);
     };
-    Ok(repo::find_revision(&ctx.db, rev_id).await?.map(Into::into))
+    let Some(rev) = repo::find_revision(&ctx.db, rev_id).await? else {
+        return Ok(None);
+    };
+    let refs = refs_of(&rev.attachments);
+    let mut out: PublishedLesson = rev.into();
+    out.attachments = files::attachment_views(ctx, &refs).await?;
+    Ok(Some(out))
 }

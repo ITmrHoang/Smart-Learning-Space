@@ -41,6 +41,14 @@
             @hui-page="onBoardPage"
           />
         </div>
+        <div v-if="stageMode === 'slides'" class="slides-wrap">
+          <div v-if="meTeacher" class="row slides-pick">
+            <hui-select size="sm" placeholder="Chọn bài để trình chiếu" :options="deckOptions" :value="slideDeck?.lessonId" @change="chooseDeck($event.detail.value)" />
+            <span v-if="loadingDeck" class="muted small">Đang tải bài…</span>
+          </div>
+          <LessonSlides v-if="slideDeck" :content="slideDeck.content" :index="slideIndex" :readonly="!meTeacher" :noControls="!meTeacher" @change="onSlide" />
+          <p v-else class="panel empty muted">{{ meTeacher ? 'Chọn một bài đã gắn vào buổi học để trình chiếu (bài phải đã xuất bản).' : 'Giáo viên chưa chọn bài trình chiếu.' }}</p>
+        </div>
         <VideoTile
           v-if="stageMode === 'screen' && screenOwner"
           class="main-video"
@@ -196,19 +204,50 @@ import { message } from '@itmrhoang/h-ui/hui-message';
 import { RoomEvent } from 'livekit-client';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
-import { liveApi } from '../../api';
+import { liveApi, sessionApi } from '../../api';
+import LessonSlides from '../teaching/LessonSlides.vue';
 import { canPublishSource, useLiveRoom } from '../../composables/useLiveRoom';
-import { BOARD_SNAPSHOT_TOPIC, HAND_REASONS, formatElapsed, isTeacher, roleOf, shortName, tally, updateHands } from '../../utils/live';
+import { BOARD_SNAPSHOT_TOPIC, HAND_REASONS, SLIDES_TOPIC, formatElapsed, isTeacher, roleOf, shortName, tally, updateHands } from '../../utils/live';
 import { uploadFile } from '../../utils/upload';
 import LivePoll from './LivePoll.vue';
 import VideoTile from './VideoTile.vue';
 
 const STATE_LABELS = { idle: 'Đang chuẩn bị', connecting: 'Đang kết nối…', connected: 'Đã kết nối', reconnecting: 'Đang kết nối lại…', disconnected: 'Mất kết nối' };
-const STAGE_MODES = [
+const BASE_STAGE_MODES = [
   { value: 'board', label: '🧑‍🏫 Bảng' },
   { value: 'screen', label: '🖥 Màn hình' },
   { value: 'camera', label: '📷 Camera' },
 ];
+
+/** Trình chiếu bài trong phòng (M36): bài đã gắn vào buổi học; giáo viên chọn bài → gửi nội dung cho cả lớp. */
+const sessionLessons = ref([]);
+const slideDeck = ref(null);
+const slideIndex = ref(0);
+const loadingDeck = ref(false);
+const STAGE_MODES = computed(() =>
+  sessionLessons.value.length ? [...BASE_STAGE_MODES, { value: 'slides', label: '📑 Slide' }] : BASE_STAGE_MODES,
+);
+const deckOptions = computed(() => sessionLessons.value.map((l) => ({ value: l.id, label: l.name })));
+
+async function chooseDeck(lessonId) {
+  if (!lessonId || lessonId === slideDeck.value?.lessonId) return;
+  loadingDeck.value = true;
+  try {
+    const l = await sessionApi.lesson(props.info.session.id, lessonId);
+    slideDeck.value = { lessonId, title: l.title, content: l.content };
+    slideIndex.value = 0;
+    live.sendText(JSON.stringify(slideDeck.value), SLIDES_TOPIC).catch(() => {});
+  } catch (e) {
+    message.error(e.message);
+  } finally {
+    loadingDeck.value = false;
+  }
+}
+
+function onSlide(i) {
+  slideIndex.value = i;
+  if (meTeacher) live.send({ t: 'slide', index: i });
+}
 
 const props = defineProps({
   /** Thông tin vào phòng từ api: { url, token, identity, name, role, session } */
@@ -336,6 +375,9 @@ live.onMessage((msg, from) => {
     case 'stage':
       if (fromTeacher) stageMode.value = msg.mode;
       break;
+    case 'slide':
+      if (fromTeacher && Number.isInteger(msg.index)) slideIndex.value = msg.index;
+      break;
     case 'board-op':
       if (fromTeacher || writers.value.includes(from.identity)) board.value?.applyRemote(msg.op);
       break;
@@ -379,6 +421,18 @@ live.onMessage((msg, from) => {
   }
 });
 
+/** Bài trình chiếu do giáo viên / trợ giảng gửi. */
+live.onText(SLIDES_TOPIC, (text, info) => {
+  if (info.identity === props.info.identity || !isTeacher(participantOf(info.identity))) return;
+  try {
+    const d = JSON.parse(text);
+    slideDeck.value = { lessonId: d.lessonId, title: d.title, content: String(d.content ?? '') };
+    slideIndex.value = 0;
+  } catch {
+    /* bỏ qua gói hỏng */
+  }
+});
+
 /** Người vào sau nhận trạng thái bảng / bình chọn / chat từ giáo viên. */
 live.onText(BOARD_SNAPSHOT_TOPIC, (text, info) => {
   // Trợ giảng vào sau cũng nhận trạng thái từ giáo viên chủ buổi
@@ -394,6 +448,10 @@ live.onText(BOARD_SNAPSHOT_TOPIC, (text, info) => {
       results.value = s.results;
     }
     pollHistory.value = s.pollHistory ?? [];
+    if (s.slides) {
+      slideDeck.value = { lessonId: s.slides.lessonId, title: s.slides.title, content: String(s.slides.content ?? '') };
+      slideIndex.value = s.slides.index ?? 0;
+    }
   } catch {
     /* bỏ qua ảnh chụp hỏng */
   }
@@ -411,6 +469,7 @@ function sendState(to) {
     poll: poll.value,
     results: poll.value && (results.value?.closed || poll.value.kind === 'poll') ? results.value : null,
     pollHistory: pollHistory.value,
+    slides: slideDeck.value ? { ...slideDeck.value, index: slideIndex.value } : null,
   };
   live.sendText(JSON.stringify(s), BOARD_SNAPSHOT_TOPIC, to).catch(() => {});
 }
@@ -635,6 +694,13 @@ async function endClass() {
 
 onMounted(async () => {
   clock = setInterval(() => (now.value = Date.now()), 1000);
+  if (meTeacher) {
+    // Bài đã gắn vào buổi học → chế độ "Slide"
+    sessionApi
+      .detail(props.info.session.id)
+      .then((d) => (sessionLessons.value = d.lessons ?? []))
+      .catch(() => {});
+  }
   try {
     const r = await live.connect(props.info.url, props.info.token);
     if (meTeacher) {
@@ -730,6 +796,13 @@ onBeforeUnmount(() => {
 .board-wrap.drawing {
   outline: 3px solid #2563eb;
   border-radius: 10px;
+}
+.slides-wrap {
+  display: grid;
+  gap: 8px;
+}
+.slides-pick hui-select {
+  min-width: 260px;
 }
 .main-video {
   width: 100%;
