@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeMessage, encodeMessage, formatElapsed, isTeacher, percent, roleOf, shortName, tally, updateHands } from './live';
+import { choiceCounts, decodeMessage, encodeMessage, formatElapsed, gradeChoice, isTeacher, percent, publicQuestion, roleOf, shortName, tally, updateHands } from './live';
 
 describe('phòng học trực tuyến', () => {
   it('mã hóa / giải mã tin; bỏ tin hỏng', () => {
@@ -50,5 +50,30 @@ describe('phòng học trực tuyến', () => {
     expect(formatElapsed(3725)).toBe('1:02:05');
     expect(shortName('Nguyễn Văn An')).toBe('An');
     expect(shortName('Phụ huynh Lan (Khách)')).toBe('Lan (Khách)');
+  });
+});
+
+describe('câu hỏi từ ngân hàng', () => {
+  const single = { id: 'q1', kind: 'single', content: '1 + 1?', matchMode: 'auto', options: [{ id: 'a', content: '1', correct: false }, { id: 'b', content: '2', correct: true }] };
+  const multi = { id: 'q2', kind: 'multiple', options: [{ id: 'a', correct: true }, { id: 'b', correct: false }, { id: 'c', correct: true }] };
+  const tf = { id: 'q3', kind: 'true_false', options: [{ id: 'a', correct: true }, { id: 'b', correct: false }] };
+
+  it('gửi cho học sinh không lộ đáp án', () => {
+    const p = publicQuestion(single, 'x1');
+    expect(p).toEqual({ id: 'x1', questionId: 'q1', qkind: 'single', content: '1 + 1?', options: [{ id: 'a', content: '1' }, { id: 'b', content: '2' }], expression: false });
+    expect(JSON.stringify(p)).not.toContain('correct');
+    expect(publicQuestion({ ...single, kind: 'short', options: [], matchMode: 'expression' }, 'x2').expression).toBe(true);
+  });
+
+  it('chấm trắc nghiệm / nhiều đáp án / đúng sai và đếm lượt chọn', () => {
+    expect(gradeChoice(single, { selected: ['b'] })).toBe(true);
+    expect(gradeChoice(single, { selected: ['a'] })).toBe(false);
+    expect(gradeChoice(single, null)).toBe(false);
+    expect(gradeChoice(multi, { selected: ['c', 'a'] })).toBe(true);
+    expect(gradeChoice(multi, { selected: ['a'] })).toBe(false);
+    expect(gradeChoice(tf, { truth: { a: true, b: false } })).toBe(true);
+    expect(gradeChoice(tf, { truth: { a: true } })).toBe(false);
+    expect(choiceCounts(multi, [{ selected: ['a'] }, { selected: ['a', 'c'] }, null])).toEqual([2, 0, 1]);
+    expect(choiceCounts(tf, [{ truth: { a: true, b: true } }, { truth: { a: false } }])).toEqual([1, 1]);
   });
 });

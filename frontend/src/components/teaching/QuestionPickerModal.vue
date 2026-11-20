@@ -1,5 +1,5 @@
 <template>
-  <hui-modal :open="open" title="Chọn câu hỏi từ ngân hàng" size="lg" ok-text="Thêm vào phần" cancel-text="Hủy" @hui-ok="confirm" @hui-close="close">
+  <hui-modal :open="open" title="Chọn câu hỏi từ ngân hàng" size="lg" :okText="okText" cancel-text="Hủy" @hui-ok="confirm" @hui-close="close">
     <div class="stack">
       <div class="toolbar">
         <hui-input class="grow" type="search" label="Tìm" clearable @hui-search="list.setFilter('q', $event.detail.value)" @clear="list.setFilter('q', '')" />
@@ -8,9 +8,15 @@
       </div>
       <p class="muted small">Đã chọn {{ picked.size }} câu · {{ list.total.value }} câu trong môn này</p>
       <ul class="clean-list picker">
-        <li v-for="q in list.items.value" :key="q.id" :class="{ disabled: exclude.includes(q.id) }">
+        <li v-for="q in list.items.value" :key="q.id" :class="{ disabled: blocked(q) }">
           <label>
-            <input type="checkbox" :disabled="exclude.includes(q.id)" :checked="picked.has(q.id) || exclude.includes(q.id)" @change="toggle(q, $event.target.checked)" />
+            <input
+              :type="single ? 'radio' : 'checkbox'"
+              name="picker"
+              :disabled="blocked(q)"
+              :checked="picked.has(q.id) || exclude.includes(q.id)"
+              @change="toggle(q, $event.target.checked)"
+            />
             <span class="stack" style="gap: 4px">
               <span class="row">
                 <hui-tag size="sm">{{ QUESTION_KIND_LABELS[q.kind] }}</hui-tag>
@@ -28,7 +34,7 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue';
+import { computed, reactive, watch } from 'vue';
 
 import { teachingApi } from '../../api';
 import { usePagedList } from '../../utils/list';
@@ -39,11 +45,21 @@ const props = defineProps({
   subjectId: { type: String, default: null },
   /** ID câu đã có trong đề */
   exclude: { type: Array, default: () => [] },
+  /** Chữ nút xác nhận */
+  okText: { type: String, default: 'Thêm vào phần' },
+  /** Chỉ chọn một câu */
+  single: { type: Boolean, default: false },
+  /** Chỉ các dạng câu này (trống = mọi dạng) */
+  kinds: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['update:open', 'picked']);
 const list = usePagedList((q) => teachingApi.questions(q), { subjectId: '', q: '', kind: '', level: '' }, { pageSize: 10 });
 const picked = reactive(new Map());
-const kindOptions = toOptions(QUESTION_KIND_LABELS);
+const kindOptions = computed(() =>
+  toOptions(QUESTION_KIND_LABELS).filter((o) => !props.kinds.length || props.kinds.includes(o.value)),
+);
+/** Câu không chọn được: đã có trong đề, hoặc dạng câu không hỗ trợ */
+const blocked = (q) => props.exclude.includes(q.id) || (props.kinds.length > 0 && !props.kinds.includes(q.kind));
 const levelOptions = toOptions(LEVEL_LABELS);
 
 watch(
@@ -56,6 +72,7 @@ watch(
 );
 
 function toggle(q, checked) {
+  if (checked && props.single) picked.clear();
   if (checked) picked.set(q.id, q);
   else picked.delete(q.id);
 }

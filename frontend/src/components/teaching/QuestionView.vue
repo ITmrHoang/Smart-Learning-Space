@@ -60,7 +60,19 @@
 
     <!-- Trả lời ngắn -->
     <div v-else-if="item.kind === 'short'" class="q__short">
+      <!-- Đáp án là biểu thức: bàn phím công thức (gửi LaTeX, server tự hiểu \frac, \sqrt…) -->
+      <hui-math-input
+        v-if="item.expression && !locked"
+        keys="structures,symbols"
+        rows="1"
+        placeholder="Gõ biểu thức, ví dụ x^2 - 1 hoặc bấm phím bên dưới"
+        :value="item.answer?.text ?? ''"
+        @input="emitAnswer({ text: $event.detail.value }, true)"
+        @change="emitAnswer({ text: $event.detail.value })"
+      />
+      <hui-math v-else-if="item.expression && item.answer?.text" display :value="item.answer.text" />
       <input
+        v-else
         class="native-input"
         type="text"
         maxlength="500"

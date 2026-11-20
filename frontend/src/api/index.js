@@ -120,6 +120,8 @@ export const teachingApi = {
   updateQuestion: (id, data) => http.put(`/teaching/questions/${id}`, data),
   archiveQuestion: (id) => http.del(`/teaching/questions/${id}`),
   regradeQuestion: (id) => http.post(`/teaching/questions/${id}/regrade`),
+  /** Chấm nhanh câu trả lời ngắn: answers → { results: [bool] } */
+  checkAnswers: (id, answers) => http.post(`/teaching/questions/${id}/check`, { answers }),
   bulkCreateQuestions: (items) => http.post('/teaching/questions/bulk', { items }),
   importTemplate: () => http.blob('/teaching/questions/import/template'),
   importPreview: (subjectId, file) => http.upload('/teaching/questions/import/preview', file, { subjectId }),
@@ -339,7 +341,10 @@ export const liveApi = {
   decideAll: (id, admit) => http.post(`/sessions/${id}/live/guests/decide-all`, { admit }),
   savePoll: (id, data) => http.post(`/sessions/${id}/live/polls`, data),
   saveBoard: (id, data) => http.put(`/sessions/${id}/live/board`, data),
+  /** → { pages, backgrounds, draft } — nháp tự lưu (nếu có) hoặc bảng đã lưu */
   boardData: (id) => http.get(`/sessions/${id}/live/board`),
+  /** Tự lưu nháp một trang bảng: { data, background, pageCount } */
+  saveDraft: (id, page, data) => http.put(`/sessions/${id}/live/board/draft/${page}`, data),
   records: (id) => http.get(`/sessions/${id}/live/records`),
   // Khách (không cần đăng nhập)
   guestJoin: (id, key, name) => http.post(`/live/guest/${id}/join`, { key, name }),

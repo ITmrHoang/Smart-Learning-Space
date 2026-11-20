@@ -6,12 +6,12 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use serde_json::Value;
 use sls_core::{
     AppContext, AppResult,
     modules::live::{
-        self, BoardPageInput, DecideInput, GuestJoinInput, GuestLink, GuestQuery, GuestState, GuestTicket, GuestView,
-        IdentityInput, LiveJoin, LiveRecords, LiveStatus, MediaInput, PollInput, PollView,
+        self, BoardDraftInput, BoardPageInput, BoardState, DecideInput, GuestJoinInput, GuestLink, GuestQuery,
+        GuestState, GuestTicket, GuestView, IdentityInput, LiveJoin, LiveRecords, LiveStatus, MediaInput, PollInput,
+        PollView,
     },
     security::Actor,
 };
@@ -34,6 +34,7 @@ pub fn routes() -> Router<AppContext> {
         .route("/sessions/{id}/live/guests/{guest_id}/decide", post(decide))
         .route("/sessions/{id}/live/polls", post(save_poll))
         .route("/sessions/{id}/live/board", get(board_data).put(save_board))
+        .route("/sessions/{id}/live/board/draft/{page}", axum::routing::put(save_draft))
         .route("/sessions/{id}/live/records", get(records))
         // Khách (không cần đăng nhập)
         .route("/live/guest/{id}/join", post(guest_request))
@@ -154,8 +155,18 @@ async fn board_data(
     State(ctx): State<AppContext>,
     actor: Actor,
     PathParam(id): PathParam<Uuid>,
-) -> AppResult<Json<Vec<Value>>> {
+) -> AppResult<Json<BoardState>> {
     Ok(Json(live::board_data(&ctx, &actor, id).await?))
+}
+
+async fn save_draft(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam((id, page)): PathParam<(Uuid, i32)>,
+    JsonBody(input): JsonBody<BoardDraftInput>,
+) -> AppResult<StatusCode> {
+    live::save_draft(&ctx, &actor, id, page, input).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn records(

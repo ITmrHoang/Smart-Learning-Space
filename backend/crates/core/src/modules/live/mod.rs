@@ -149,15 +149,22 @@ pub struct DecideInput {
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct PollInput {
-    /// poll | quiz
+    /// poll | quiz | question (câu lấy từ ngân hàng)
     pub kind: String,
-    #[validate(length(min = 1, max = 500, message = "Câu hỏi từ 1 đến 500 ký tự."))]
+    #[validate(length(min = 1, max = 20000, message = "Câu hỏi từ 1 đến 20.000 ký tự."))]
     pub question: String,
     pub options: Vec<String>,
     #[serde(default)]
     pub correct: Vec<i32>,
     pub counts: Vec<i32>,
     pub voters: i32,
+    /// question: câu trong ngân hàng của giáo viên
+    pub question_id: Option<Uuid>,
+    /// question: single | multiple | true_false | short
+    pub question_kind: Option<String>,
+    /// question: số học sinh trả lời đúng
+    #[serde(default)]
+    pub right_count: i32,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -171,7 +178,16 @@ pub struct PollView {
     pub correct: Vec<i32>,
     pub counts: Vec<i32>,
     pub voters: i32,
+    pub question_kind: Option<String>,
+    pub right_count: i32,
     pub created_at: DateTime<Utc>,
+}
+
+/// Nền trang bảng (`hui-whiteboard`).
+pub const BOARD_BACKGROUNDS: [&str; 6] = ["none", "grid", "oly", "lines", "dots", "axes"];
+
+fn default_background() -> String {
+    "none".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,6 +199,30 @@ pub struct BoardPageInput {
     /// Dữ liệu nét vẽ (`hui-whiteboard`) để mở lại.
     #[serde(default)]
     pub data: Value,
+    #[serde(default = "default_background")]
+    pub background: String,
+}
+
+/// Nháp một trang bảng (tự lưu trong buổi).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardDraftInput {
+    /// Phần tử của trang (`hui-whiteboard`)
+    pub data: Value,
+    #[serde(default = "default_background")]
+    pub background: String,
+    /// Tổng số trang hiện có (trang nháp vượt quá bị xóa)
+    pub page_count: Option<i32>,
+}
+
+/// Bảng để mở lại: nháp (nếu có) hoặc bảng đã lưu lúc kết thúc.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardState {
+    pub pages: Vec<Value>,
+    pub backgrounds: Vec<String>,
+    /// Lấy từ nháp tự lưu (không phải bảng đã lưu)
+    pub draft: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -530,10 +570,32 @@ pub async fn save_poll(ctx: &AppContext, actor: &Actor, session_id: Uuid, input:
     input.validate()?;
     let s = sessions::live_staff(ctx, actor, session_id).await?;
     let n = input.options.len();
-    if !(2..=MAX_POLL_OPTIONS).contains(&n) || input.counts.len() != n {
+    let bank = input.kind == "question";
+    if bank {
+        // Câu từ ngân hàng: trả lời ngắn không có phương án; câu phải của chính người hỏi
+        let kind = input.question_kind.as_deref().unwrap_or_default();
+        if !matches!(kind, "single" | "multiple" | "true_false" | "short") {
+            return Err(AppError::field("questionKind", "Dạng câu không hợp lệ."));
+        }
+        if n > MAX_POLL_OPTIONS || input.counts.len() != n || (kind != "short" && n < 2) {
+            return Err(AppError::field("options", format!("Có tối đa {MAX_POLL_OPTIONS} phương án.")));
+        }
+        let id = input.question_id.ok_or_else(|| AppError::field("questionId", "Thiếu câu hỏi."))?;
+        let owned: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM questions WHERE id = $1 AND owner_id = $2)")
+            .bind(id)
+            .bind(actor.id)
+            .fetch_one(&ctx.db)
+            .await?;
+        if !owned {
+            return Err(AppError::field("questionId", "Câu hỏi không có trong ngân hàng của bạn."));
+        }
+        if !(0..=input.voters).contains(&input.right_count) {
+            return Err(AppError::field("rightCount", "Số học sinh đúng không hợp lệ."));
+        }
+    } else if !(2..=MAX_POLL_OPTIONS).contains(&n) || input.counts.len() != n {
         return Err(AppError::field("options", format!("Có từ 2 đến {MAX_POLL_OPTIONS} phương án.")));
     }
-    if !matches!(input.kind.as_str(), "poll" | "quiz")
+    if !matches!(input.kind.as_str(), "poll" | "quiz" | "question")
         || input.correct.iter().any(|c| *c < 0 || *c as usize >= n)
         || (input.kind == "quiz" && input.correct.is_empty())
     {
@@ -542,11 +604,13 @@ pub async fn save_poll(ctx: &AppContext, actor: &Actor, session_id: Uuid, input:
     if input.counts.iter().any(|c| *c < 0) || input.voters < 0 {
         return Err(AppError::field("counts", "Số phiếu không hợp lệ."));
     }
-    let options: Vec<String> = input.options.iter().map(|o| o.trim().chars().take(200).collect()).collect();
+    let limit = if bank { 2000 } else { 200 };
+    let options: Vec<String> = input.options.iter().map(|o| o.trim().chars().take(limit).collect()).collect();
     Ok(sqlx::query_as::<_, PollView>(
-        "INSERT INTO live_polls (session_id, kind, question, options, correct, counts, voters) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7) \
-         RETURNING id, kind, question, options, correct, counts, voters, created_at",
+        "INSERT INTO live_polls (session_id, kind, question, options, correct, counts, voters, question_id, \
+                                 question_kind, right_count) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
+         RETURNING id, kind, question, options, correct, counts, voters, question_kind, right_count, created_at",
     )
     .bind(s.id)
     .bind(&input.kind)
@@ -555,8 +619,58 @@ pub async fn save_poll(ctx: &AppContext, actor: &Actor, session_id: Uuid, input:
     .bind(&input.correct)
     .bind(&input.counts)
     .bind(input.voters)
+    .bind(if bank { input.question_id } else { None })
+    .bind(if bank { input.question_kind.as_deref() } else { None })
+    .bind(if bank { input.right_count } else { 0 })
     .fetch_one(&ctx.db)
     .await?)
+}
+
+fn check_background(bg: &str) -> AppResult<()> {
+    if BOARD_BACKGROUNDS.contains(&bg) {
+        Ok(())
+    } else {
+        Err(AppError::field("background", "Nền trang không hợp lệ."))
+    }
+}
+
+/// Tự lưu nháp một trang bảng trong buổi (ghi đè). Gửi kèm số trang hiện có → trang nháp thừa bị xóa.
+pub async fn save_draft(
+    ctx: &AppContext,
+    actor: &Actor,
+    session_id: Uuid,
+    page: i32,
+    input: BoardDraftInput,
+) -> AppResult<()> {
+    let s = sessions::live_staff(ctx, actor, session_id).await?;
+    if !(0..MAX_BOARD_PAGES).contains(&page) {
+        return Err(AppError::field("page", format!("Bảng tối đa {MAX_BOARD_PAGES} trang.")));
+    }
+    if !input.data.is_array() {
+        return Err(AppError::field("data", "Dữ liệu trang bảng không hợp lệ."));
+    }
+    check_background(&input.background)?;
+    let mut tx = ctx.db.begin().await?;
+    sqlx::query(
+        "INSERT INTO live_board_drafts (session_id, page, data, background) VALUES ($1, $2, $3, $4) \
+         ON CONFLICT (session_id, page) DO UPDATE SET data = EXCLUDED.data, background = EXCLUDED.background, \
+         updated_at = now()",
+    )
+    .bind(s.id)
+    .bind(page)
+    .bind(&input.data)
+    .bind(&input.background)
+    .execute(&mut *tx)
+    .await?;
+    if let Some(count) = input.page_count.filter(|c| *c > page) {
+        sqlx::query("DELETE FROM live_board_drafts WHERE session_id = $1 AND page >= $2")
+            .bind(s.id)
+            .bind(count)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Lưu một trang bảng (ảnh + dữ liệu nét vẽ). Lưu lại cùng trang thì ghi đè.
@@ -565,34 +679,58 @@ pub async fn save_board(ctx: &AppContext, actor: &Actor, session_id: Uuid, input
     if !(0..MAX_BOARD_PAGES).contains(&input.page) {
         return Err(AppError::field("page", format!("Bảng tối đa {MAX_BOARD_PAGES} trang.")));
     }
+    check_background(&input.background)?;
     files::owned_ready(ctx, actor.id, &[input.file_id], Purpose::Content).await?;
     sqlx::query(
-        "INSERT INTO live_board_pages (session_id, page, file_id, data) VALUES ($1, $2, $3, $4) \
-         ON CONFLICT (session_id, page) DO UPDATE SET file_id = EXCLUDED.file_id, data = EXCLUDED.data, saved_at = now()",
+        "INSERT INTO live_board_pages (session_id, page, file_id, data, background) VALUES ($1, $2, $3, $4, $5) \
+         ON CONFLICT (session_id, page) DO UPDATE SET file_id = EXCLUDED.file_id, data = EXCLUDED.data, \
+         background = EXCLUDED.background, saved_at = now()",
     )
     .bind(s.id)
     .bind(input.page)
     .bind(input.file_id)
     .bind(if input.data.is_null() { json!([]) } else { input.data })
+    .bind(&input.background)
     .execute(&ctx.db)
     .await?;
     Ok(())
 }
 
-/// Giáo viên mở lại bảng đã lưu (dữ liệu nét vẽ từng trang).
-pub async fn board_data(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResult<Vec<Value>> {
+/// Giáo viên / trợ giảng mở lại bảng: nháp tự lưu trong buổi (nếu có), không thì bảng đã lưu lúc kết thúc.
+pub async fn board_data(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResult<BoardState> {
     let s = sessions::live_staff(ctx, actor, session_id).await?;
-    Ok(sqlx::query_scalar("SELECT data FROM live_board_pages WHERE session_id = $1 ORDER BY page")
-        .bind(s.id)
-        .fetch_all(&ctx.db)
-        .await?)
+    let drafts: Vec<(i32, Value, String)> =
+        sqlx::query_as("SELECT page, data, background FROM live_board_drafts WHERE session_id = $1 ORDER BY page")
+            .bind(s.id)
+            .fetch_all(&ctx.db)
+            .await?;
+    let (rows, draft) = if drafts.is_empty() {
+        let saved: Vec<(i32, Value, String)> =
+            sqlx::query_as("SELECT page, data, background FROM live_board_pages WHERE session_id = $1 ORDER BY page")
+                .bind(s.id)
+                .fetch_all(&ctx.db)
+                .await?;
+        (saved, false)
+    } else {
+        (drafts, true)
+    };
+    // Trang thiếu ở giữa (chưa vẽ gì) → trang trống
+    let count = rows.iter().map(|(p, _, _)| *p + 1).max().unwrap_or(0).max(0) as usize;
+    let mut pages = vec![json!([]); count];
+    let mut backgrounds = vec![default_background(); count];
+    for (page, data, bg) in rows {
+        pages[page as usize] = data;
+        backgrounds[page as usize] = bg;
+    }
+    Ok(BoardState { pages, backgrounds, draft })
 }
 
 /// Bình chọn + ảnh bảng của buổi (ai vào được buổi thì xem được); giáo viên xem thêm lượt lên bảng.
 pub async fn records(ctx: &AppContext, actor: &Actor, session_id: Uuid) -> AppResult<LiveRecords> {
     let s = sessions::viewable(ctx, actor, session_id).await?;
     let polls = sqlx::query_as::<_, PollView>(
-        "SELECT id, kind, question, options, correct, counts, voters, created_at FROM live_polls \
+        "SELECT id, kind, question, options, correct, counts, voters, question_kind, right_count, created_at \
+         FROM live_polls \
          WHERE session_id = $1 ORDER BY created_at",
     )
     .bind(s.id)

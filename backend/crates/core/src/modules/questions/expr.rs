@@ -316,6 +316,103 @@ pub fn parse(s: &str) -> Result<Expr, String> {
     Ok(e)
 }
 
+/// Nhóm `{…}` bắt đầu ở `start` (ký tự `{`): trả (nội dung, vị trí sau `}`).
+fn brace_group(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if chars.get(start) != Some(&'{') {
+        return None;
+    }
+    let mut depth = 0;
+    for (i, c) in chars.iter().enumerate().skip(start) {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((chars[start + 1..i].iter().collect(), i + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// LaTeX (gõ bằng bàn phím công thức) → cách viết thường: `\frac{a}{b}` → `((a)/(b))`, `\sqrt[3]{x}` →
+/// `((x)^(1/(3)))`, `\sqrt{x}` → `sqrt(x)`, `\cdot` → `*`, `\pi` → `pi`, `\left( … \right)` → `( … )`.
+pub fn latex_to_plain(s: &str) -> String {
+    if !s.contains('\\') {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '\\' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut j = start;
+        while j < chars.len() && chars[j].is_ascii_alphabetic() {
+            j += 1;
+        }
+        let name: String = chars[start..j].iter().collect();
+        match name.as_str() {
+            "frac" | "dfrac" | "tfrac" => {
+                if let Some((a, k)) = brace_group(&chars, j)
+                    && let Some((b, m)) = brace_group(&chars, k)
+                {
+                    out.push_str(&format!("(({})/({}))", latex_to_plain(&a), latex_to_plain(&b)));
+                    i = m;
+                    continue;
+                }
+            }
+            "sqrt" => {
+                if chars.get(j) == Some(&'[')
+                    && let Some(close) = chars[j..].iter().position(|c| *c == ']').map(|p| j + p)
+                {
+                    let n: String = chars[j + 1..close].iter().collect();
+                    if let Some((a, m)) = brace_group(&chars, close + 1) {
+                        out.push_str(&format!("(({})^(1/({})))", latex_to_plain(&a), latex_to_plain(&n)));
+                        i = m;
+                        continue;
+                    }
+                }
+                if let Some((a, m)) = brace_group(&chars, j) {
+                    out.push_str(&format!("sqrt({})", latex_to_plain(&a)));
+                    i = m;
+                    continue;
+                }
+                out.push('√');
+            }
+            "cdot" | "times" => out.push('*'),
+            "div" => out.push('/'),
+            "pi" => out.push_str("pi"),
+            "left" | "right" | "displaystyle" => {}
+            "sin" | "cos" | "tan" | "cot" | "ln" | "log" | "exp" => {
+                out.push(' ');
+                out.push_str(&name);
+                out.push(' ');
+            }
+            "" => {
+                // `\,` `\;` `\ ` `\{` `\}`: khoảng trắng / ngoặc nhọn viết thoát
+                if let Some(c) = chars.get(j) {
+                    if matches!(c, '{' | '}' | '|') {
+                        out.push(*c);
+                    }
+                    i = j + 1;
+                    continue;
+                }
+            }
+            // Lệnh lạ: giữ nguyên để bộ đọc báo lỗi
+            _ => out.push_str(&chars[i..j].iter().collect::<String>()),
+        }
+        i = j;
+    }
+    out
+}
+
 /// Biểu thức hoặc phương trình `trái = phải` (đổi thành `trái − phải`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed {
@@ -324,7 +421,8 @@ pub enum Parsed {
 }
 
 pub fn parse_answer(s: &str) -> Result<Parsed, String> {
-    let parts: Vec<&str> = s.split('=').collect();
+    let plain = latex_to_plain(s);
+    let parts: Vec<&str> = plain.split('=').collect();
     match parts.as_slice() {
         [one] => Ok(Parsed::Expr(parse(one)?)),
         [l, r] => Ok(Parsed::Equation(Expr::Sub(Box::new(parse(l)?), Box::new(parse(r)?)))),
@@ -485,6 +583,25 @@ mod tests {
         ] {
             assert!(!eq(a, b), "{a} !~ {b}");
         }
+    }
+
+    #[test]
+    fn latex_tu_ban_phim_cong_thuc() {
+        for (a, b) in [
+            ("\\frac{1}{2}", "0,5"),
+            ("\\frac{x+1}{2}", "(x + 1)/2"),
+            ("\\sqrt{x^{2}}", "|x|"),
+            ("\\sqrt[3]{8}", "2"),
+            ("2\\cdot\\pi r", "2πr"),
+            ("\\left( x-1 \\right)^{2}", "x^2 - 2x + 1"),
+            ("\\frac{\\sqrt{3}}{2}", "sin(pi/3)"),
+            ("\\sin x", "sin(x)"),
+            ("x^{2}", "x²"),
+        ] {
+            assert!(eq(a, b), "{a} ~ {b}");
+        }
+        assert!(parse_answer("\\frac{1}{").is_err());
+        assert!(parse_answer("\\alpha + 1").is_err());
     }
 
     #[test]

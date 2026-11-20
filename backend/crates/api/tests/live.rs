@@ -215,7 +215,10 @@ async fn phong_live_token_quyen_va_luu_lai(pool: PgPool) {
         StatusCode::NO_CONTENT,
     );
     assert_eq!(app.put(&board, json!({ "page": 0, "fileId": file }), Some(&an)).await.status, StatusCode::FORBIDDEN);
-    assert_eq!(app.get(&board, Some(&t)).await.body[0][0]["type"], "pen");
+    let saved = app.get(&board, Some(&t)).await.body;
+    assert_eq!(saved["pages"][0][0]["type"], "pen");
+    assert_eq!(saved["backgrounds"], json!(["none"]));
+    assert_eq!(saved["draft"], false);
 
     let rec = app.get(&format!("/api/sessions/{s}/live/records"), Some(&an)).await;
     ok(&rec, StatusCode::OK);
@@ -234,6 +237,107 @@ async fn phong_live_token_quyen_va_luu_lai(pool: PgPool) {
     ok(&app.post(&format!("/api/sessions/{s}/live/end"), json!({}), Some(&t)).await, StatusCode::NO_CONTENT);
     let methods: Vec<String> = calls.lock().unwrap().iter().map(|(m, _)| m.clone()).collect();
     assert_eq!(&methods[2..], ["RemoveParticipant", "DeleteRoom"]);
+}
+
+/// Đợt 10: nháp bảng tự lưu (từng trang + nền), câu hỏi ngân hàng hỏi nhanh trong phòng, chấm trả lời ngắn.
+#[sqlx::test(migrator = "sls_core::db::MIGRATOR")]
+async fn bang_nhap_nen_va_cau_hoi_ngan_hang(pool: PgPool) {
+    let (app, _) = live_app(pool).await;
+    let (_, t, toan) = teacher(&app, "gv", "toan").await;
+    let c = class(&app, &t, toan).await;
+    let (_, an) = app.login_as("hs_an", UserRole::Student).await;
+    ok(&app.post(&format!("/api/classes/{c}/enroll"), json!({}), Some(&an)).await, StatusCode::OK);
+    let s = live_session(&app, &t, &c, -5, "invited").await;
+    let board = format!("/api/sessions/{s}/live/board");
+    let draft = |page: i32| format!("/api/sessions/{s}/live/board/draft/{page}");
+
+    // Chưa có gì: bảng trống
+    let state = app.get(&board, Some(&t)).await;
+    ok(&state, StatusCode::OK);
+    assert_eq!(state.body, json!({ "pages": [], "backgrounds": [], "draft": false }));
+
+    // Tự lưu trang 0 (nền ô ly) và trang 2 (hệ trục) — trang 1 chưa vẽ gì
+    let pen = json!([{ "id": "a", "type": "pen", "points": [[1, 1], [5, 5]] }]);
+    ok(&app.put(&draft(0), json!({ "data": pen, "background": "oly" }), Some(&t)).await, StatusCode::NO_CONTENT);
+    ok(&app.put(&draft(2), json!({ "data": [], "background": "axes" }), Some(&t)).await, StatusCode::NO_CONTENT);
+    let state = app.get(&board, Some(&t)).await.body;
+    assert_eq!(state["draft"], true);
+    assert_eq!(state["pages"].as_array().unwrap().len(), 3);
+    assert_eq!(state["pages"][0][0]["id"], "a");
+    assert_eq!(state["backgrounds"], json!(["oly", "none", "axes"]));
+    // Ghi đè trang 0, báo còn 1 trang → trang nháp thừa bị xóa
+    let res = app.put(&draft(0), json!({ "data": [], "background": "grid", "pageCount": 1 }), Some(&t)).await;
+    ok(&res, StatusCode::NO_CONTENT);
+    assert_eq!(app.get(&board, Some(&t)).await.body["backgrounds"], json!(["grid"]));
+
+    // Lỗi: học sinh không lưu / xem nháp; nền lạ; dữ liệu không phải mảng; trang ngoài phạm vi
+    assert_eq!(app.put(&draft(0), json!({ "data": [] }), Some(&an)).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(app.get(&board, Some(&an)).await.status, StatusCode::FORBIDDEN);
+    let bad_bg = app.put(&draft(0), json!({ "data": [], "background": "tranh" }), Some(&t)).await;
+    assert_eq!(bad_bg.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let bad_data = app.put(&draft(0), json!({ "data": { "a": 1 } }), Some(&t)).await;
+    assert_eq!(bad_data.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(app.put(&draft(99), json!({ "data": [] }), Some(&t)).await.status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Câu trả lời ngắn trong ngân hàng → chấm nhanh câu trả lời của cả lớp ở server
+    let q = app
+        .post(
+            "/api/teaching/questions",
+            json!({ "subjectId": toan, "kind": "short", "level": "thong_hieu", "content": "Khai triển $2(x+1)$",
+                    "accepted": ["2(x+1)"], "matchMode": "expression" }),
+            Some(&t),
+        )
+        .await;
+    ok(&q, StatusCode::CREATED);
+    let qid = q.body["id"].as_str().unwrap().to_string();
+    let res = app
+        .post(
+            &format!("/api/teaching/questions/{qid}/check"),
+            json!({ "answers": ["2x + 2", "2x + 1", "2 + 2x", ""] }),
+            Some(&t),
+        )
+        .await;
+    ok(&res, StatusCode::OK);
+    assert_eq!(res.body["results"], json!([true, false, true, false]));
+    let (_, t2, _) = teacher(&app, "gv2", "toan").await;
+    let res = app.post(&format!("/api/teaching/questions/{qid}/check"), json!({ "answers": ["1"] }), Some(&t2)).await;
+    assert_eq!(res.status, StatusCode::NOT_FOUND);
+
+    // Lưu kết quả câu hỏi ngân hàng (trả lời ngắn: không có phương án)
+    let polls = format!("/api/sessions/{s}/live/polls");
+    let res = app
+        .post(
+            &polls,
+            json!({ "kind": "question", "questionId": qid, "questionKind": "short", "question": "Khai triển $2(x+1)$",
+                    "options": [], "counts": [], "voters": 4, "rightCount": 2 }),
+            Some(&t),
+        )
+        .await;
+    ok(&res, StatusCode::CREATED);
+    assert_eq!(res.body["rightCount"], 2);
+    assert_eq!(res.body["questionKind"], "short");
+    // Câu của người khác / số đúng vượt số người trả lời → lỗi
+    let res = app
+        .post(
+            &polls,
+            json!({ "kind": "question", "questionId": Uuid::now_v7(), "questionKind": "short", "question": "x",
+                    "options": [], "counts": [], "voters": 1, "rightCount": 0 }),
+            Some(&t),
+        )
+        .await;
+    assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let res = app
+        .post(
+            &polls,
+            json!({ "kind": "question", "questionId": qid, "questionKind": "short", "question": "x",
+                    "options": [], "counts": [], "voters": 1, "rightCount": 3 }),
+            Some(&t),
+        )
+        .await;
+    assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let rec = app.get(&format!("/api/sessions/{s}/live/records"), Some(&an)).await.body;
+    assert_eq!(rec["polls"][0]["kind"], "question");
+    assert_eq!(rec["polls"][0]["rightCount"], 2);
 }
 
 #[sqlx::test(migrator = "sls_core::db::MIGRATOR")]

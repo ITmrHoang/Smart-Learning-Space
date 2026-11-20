@@ -213,6 +213,8 @@ pub struct ItemView {
     pub result: Option<ItemResult>,
     /// Câu tự luận (giáo viên chấm).
     pub manual: bool,
+    /// Trả lời ngắn chấm theo biểu thức tương đương: giao diện hiện bàn phím công thức.
+    pub expression: bool,
     /// Tự luận: ảnh / PDF bài làm.
     pub files: Vec<AnswerFile>,
     /// Tự luận đã nộp: trạng thái chấm, điểm từng bước, nhận xét.

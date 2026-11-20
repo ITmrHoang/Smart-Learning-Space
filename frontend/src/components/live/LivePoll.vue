@@ -62,7 +62,8 @@
       <b class="small">Đã hỏi trong buổi</b>
       <div v-for="h in history" :key="h.id" class="small hist">
         <hui-markdown inline :value="h.question" />
-        <span class="muted"> — {{ h.options.map((o, i) => `${String.fromCharCode(65 + i)}: ${h.counts[i]}`).join(' · ') }}</span>
+        <span v-if="h.kind === 'question'" class="muted"> — {{ h.rightCount }}/{{ h.voters }} em đúng</span>
+        <span v-else class="muted"> — {{ h.options.map((o, i) => `${String.fromCharCode(65 + i)}: ${h.counts[i]}`).join(' · ') }}</span>
       </div>
     </section>
   </div>

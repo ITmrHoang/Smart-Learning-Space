@@ -26,7 +26,7 @@ use crate::{
         questions::{
             dto::{QuestionResponse, RegradeResponse},
             grading::{self, Answer, Scoring, round2},
-            model::{QuestionBody, QuestionKind},
+            model::{MatchMode, QuestionBody, QuestionKind},
             service::{self as questions, PoolFilter},
         },
         teachers::service as teachers,
@@ -711,6 +711,7 @@ async fn build_view(
                 rubric: body.rubric.clone(),
             }),
             manual: it.manual,
+            expression: *kind == QuestionKind::Short && body.match_mode == MatchMode::Expression,
             files: answer_files,
             grading,
         });

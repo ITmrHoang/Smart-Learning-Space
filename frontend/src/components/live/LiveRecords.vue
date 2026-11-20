@@ -14,12 +14,16 @@
       <b class="small">Bình chọn / quiz</b>
       <article v-for="poll in data.polls" :key="poll.id" class="poll">
         <div class="row">
-          <hui-tag size="sm" :color="poll.kind === 'quiz' ? 'warning' : 'info'">{{ poll.kind === 'quiz' ? 'Quiz' : 'Bình chọn' }}</hui-tag>
+          <hui-tag size="sm" :color="KIND_COLORS[poll.kind]">{{ KIND_LABELS[poll.kind] }}</hui-tag>
           <hui-markdown inline :value="poll.question" />
           <span class="muted small">· {{ poll.voters }} người</span>
+          <span v-if="poll.kind === 'question'" class="small">· <b>{{ poll.rightCount }}</b> em đúng ({{ percent(poll.rightCount, poll.voters) }}%)</span>
         </div>
         <div v-for="(o, i) in poll.options" :key="i" class="bar-row" :class="{ correct: poll.correct.includes(i) }">
-          <span class="opt">{{ String.fromCharCode(65 + i) }}. {{ o }}</span>
+          <span class="opt">
+            {{ poll.questionKind === 'true_false' ? `${String.fromCharCode(97 + i)})` : `${String.fromCharCode(65 + i)}.` }}
+            <hui-markdown inline :value="o" />
+          </span>
           <span class="bar"><span :style="{ width: `${percent(poll.counts[i], poll.voters)}%` }" /></span>
           <span class="small">{{ poll.counts[i] }} ({{ percent(poll.counts[i], poll.voters) }}%)</span>
         </div>
@@ -38,6 +42,9 @@ import { onMounted, ref } from 'vue';
 
 import { liveApi } from '../../api';
 import { percent } from '../../utils/live';
+
+const KIND_LABELS = { poll: 'Bình chọn', quiz: 'Quiz', question: 'Câu hỏi ngân hàng' };
+const KIND_COLORS = { poll: 'info', quiz: 'warning', question: 'primary' };
 
 const props = defineProps({ sessionId: { type: String, required: true } });
 const data = ref(null);

@@ -7,8 +7,9 @@ use validator::Validate;
 
 use super::{
     dto::{
-        BulkCreateRequest, BulkCreateResponse, FolderInput, FolderResponse, ImportItem, ImportPreview, QuestionInput,
-        QuestionQuery, QuestionResponse, RegradeResponse, SaveQuestionResponse, WordImportRequest,
+        BulkCreateRequest, BulkCreateResponse, CheckAnswersRequest, CheckAnswersResponse, FolderInput, FolderResponse,
+        ImportItem, ImportPreview, QuestionInput, QuestionQuery, QuestionResponse, RegradeResponse,
+        SaveQuestionResponse, WordImportRequest,
     },
     expr, grading, import,
     model::{MatchMode, QOption, QuestionBody, QuestionKind, QuestionRow, QuestionVersion, RubricStep},
@@ -509,4 +510,28 @@ pub async fn count_pool(ctx: &AppContext, p: &PoolFilter, exclude: &[Uuid]) -> A
 /// Rút ngẫu nhiên `count` câu cho một ô ma trận.
 pub async fn draw(ctx: &AppContext, p: &PoolFilter, exclude: &[Uuid], count: i64) -> AppResult<Vec<Uuid>> {
     Ok(repo::random_ids(&ctx.db, &pool_filter(p, exclude), count).await?)
+}
+
+/// Chấm các câu trả lời ngắn theo đáp án (có sai số / biểu thức tương đương) — phòng học trực tuyến hỏi nhanh cả lớp.
+pub async fn check_answers(
+    ctx: &AppContext,
+    actor: &Actor,
+    id: Uuid,
+    req: CheckAnswersRequest,
+) -> AppResult<CheckAnswersResponse> {
+    req.validate()?;
+    let q = load_own(ctx, actor, id).await?;
+    if q.kind != QuestionKind::Short.as_str() {
+        return Err(AppError::bad_request("NOT_SHORT", "Chỉ chấm được câu trả lời ngắn."));
+    }
+    let body = &q.body.0;
+    let results = req
+        .answers
+        .iter()
+        .map(|a| {
+            let a: String = a.chars().take(500).collect();
+            grading::matches_with(&a, &body.accepted, body.tolerance, body.match_mode)
+        })
+        .collect();
+    Ok(CheckAnswersResponse { results })
 }

@@ -245,3 +245,18 @@ pub struct ImportPreview {
     pub items: Vec<ImportItem>,
     pub valid_count: usize,
 }
+
+/// Chấm nhanh câu trả lời (câu hỏi trong phòng học trực tuyến).
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckAnswersRequest {
+    #[validate(length(max = 500, message = "Tối đa 500 câu trả lời mỗi lần."))]
+    pub answers: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckAnswersResponse {
+    /// Đúng / sai theo thứ tự câu trả lời gửi lên.
+    pub results: Vec<bool>,
+}

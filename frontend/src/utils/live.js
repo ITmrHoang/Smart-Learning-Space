@@ -92,3 +92,32 @@ export function shortName(name) {
   const last = base.split(/\s+/).pop() || '?';
   return guest ? `${last} (Khách)` : last;
 }
+
+// ---------- Câu hỏi từ ngân hàng (M45) ----------
+
+/** Câu gửi cho học sinh: bỏ đáp án, lời giải. */
+export function publicQuestion(q, id) {
+  return {
+    id,
+    questionId: q.id,
+    qkind: q.kind,
+    content: q.content,
+    options: (q.options ?? []).map((o) => ({ id: o.id, content: o.content })),
+    expression: q.matchMode === 'expression',
+  };
+}
+
+/** Câu trả lời trắc nghiệm / đúng sai có đúng không (đúng sai: đúng hết các ý). Trả lời ngắn chấm ở server. */
+export function gradeChoice(q, answer) {
+  if (q.kind === 'true_false') return q.options.length > 0 && q.options.every((o) => answer?.truth?.[o.id] === o.correct);
+  const correct = q.options.filter((o) => o.correct).map((o) => o.id).sort();
+  const chosen = [...new Set(answer?.selected ?? [])].sort();
+  return correct.length > 0 && chosen.length === correct.length && chosen.every((id, i) => id === correct[i]);
+}
+
+/** Số học sinh chọn từng phương án (đúng sai: số em chọn "Đúng" ở từng ý). */
+export function choiceCounts(q, answers) {
+  return q.options.map(
+    (o) => answers.filter((a) => (q.kind === 'true_false' ? a?.truth?.[o.id] === true : (a?.selected ?? []).includes(o.id))).length,
+  );
+}

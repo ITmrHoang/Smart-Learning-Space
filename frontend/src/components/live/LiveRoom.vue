@@ -7,6 +7,7 @@
       </div>
       <div class="row">
         <hui-tag v-if="state !== 'connected'" size="sm" :color="state === 'disconnected' ? 'danger' : 'warning'">{{ STATE_LABELS[state] }}</hui-tag>
+        <span v-if="meTeacher && draftSavedAt" class="muted small" title="Bảng tự lưu nháp: tải lại trang / đổi máy vẫn mở lại được">💾 tự lưu {{ clockText(draftSavedAt) }}</span>
         <span class="small">{{ people.length }} người</span>
         <hui-button v-if="!canPlayAudio" size="sm" @hui-click="startAudio">🔊 Bật âm thanh</hui-button>
         <hui-button v-if="meOwner" size="sm" variant="danger" :loading="ending" @hui-click="endClass">Kết thúc buổi</hui-button>
@@ -37,9 +38,43 @@
             :readonly="!canDraw"
             :author="info.identity"
             :color="meTeacher ? '#111827' : '#2563eb'"
+            :noImage="!meTeacher"
             @hui-change="onBoardChange"
             @hui-page="onBoardPage"
+            @hui-image-request="pickImage"
+            @hui-paste-image="(e) => insertImage(e.detail.file)"
           />
+          <input ref="imagePicker" type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden @change="onImagePicked" />
+        </div>
+
+        <!-- Bảng riêng từng học sinh (M45) -->
+        <!-- Giữ nguyên (chỉ ẩn) khi giáo viên chuyển khung khác: bài trên bảng riêng không mất -->
+        <div v-if="pboard || stageMode === 'pboard'" v-show="stageMode === 'pboard'" class="pboard-wrap">
+          <template v-if="meTeacher">
+            <div class="row between">
+              <b>Bảng riêng · {{ pboardList.length }} em</b>
+              <hui-button v-if="pboard" size="sm" variant="outline" @hui-click="endPboard">Kết thúc bảng riêng</hui-button>
+            </div>
+            <p v-if="!pboardList.length" class="panel empty muted">Chưa có học sinh nào trong phòng.</p>
+            <div class="pboard-grid" :class="{ zoomed: !!pboardZoom }">
+              <article v-for="s in pboardList" v-show="!pboardZoom || pboardZoom === s.identity" :key="s.identity" class="pboard-tile">
+                <div class="row between small">
+                  <b>{{ s.name }}</b>
+                  <span class="row">
+                    <span class="muted">{{ s.ops.length }} nét</span>
+                    <button type="button" class="link" @click="pboardZoom = pboardZoom === s.identity ? null : s.identity">{{ pboardZoom === s.identity ? 'Thu nhỏ' : 'Phóng to' }}</button>
+                    <button type="button" class="link" @click="showPboard(s)">Chiếu cho cả lớp</button>
+                  </span>
+                </div>
+                <hui-whiteboard :ref="(el) => setPboardRef(s.identity, el)" readonly />
+              </article>
+            </div>
+          </template>
+          <template v-else-if="pboard && info.role === 'student'">
+            <div class="banner">✍ Bảng riêng của em — chỉ giáo viên thấy. Làm bài rồi giáo viên có thể chiếu bảng của em cho cả lớp.</div>
+            <hui-whiteboard ref="myPboard" :author="info.identity" color="#2563eb" noImage @hui-change="onMyPboardChange" @hui-page="onMyPboardPage" />
+          </template>
+          <p v-else class="panel empty muted">Giáo viên đang cho các bạn làm bài trên bảng riêng.</p>
         </div>
         <div v-if="stageMode === 'slides'" class="slides-wrap">
           <div v-if="meTeacher" class="row slides-pick">
@@ -169,6 +204,20 @@
             @close="closePoll"
             @clear="poll = null"
           />
+          <LiveQuestion
+            v-if="meTeacher || bankQ"
+            :isTeacher="meTeacher"
+            :canAnswer="info.role === 'student'"
+            :question="bankQ"
+            :result="bankResult"
+            :answers="bankAnswers"
+            :myIdentity="info.identity"
+            :closing="closingBank"
+            @start="startBank"
+            @submit="submitBank"
+            @close="closeBank"
+            @clear="clearBank"
+          />
         </section>
       </aside>
     </div>
@@ -184,6 +233,7 @@
       <template v-if="meTeacher">
         <span class="sep" />
         <button v-for="m in STAGE_MODES" :key="m.value" type="button" class="ctl" :class="{ on: stageMode === m.value }" @click="setStage(m.value)">{{ m.label }}</button>
+        <button v-if="!pboard" type="button" class="ctl" title="Mỗi học sinh một bảng, chép trang đang giảng làm đề" @click="startPboard">🗂 Mỗi em một bảng</button>
         <button type="button" class="ctl" :disabled="savingBoard" @click="saveBoard(true)">💾 {{ savingBoard ? 'Đang lưu…' : 'Lưu bảng' }}</button>
       </template>
       <template v-else-if="info.role === 'student'">
@@ -202,14 +252,28 @@
  */
 import { message } from '@itmrhoang/h-ui/hui-message';
 import { RoomEvent } from 'livekit-client';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-import { liveApi, sessionApi } from '../../api';
+import { liveApi, sessionApi, teachingApi } from '../../api';
 import LessonSlides from '../teaching/LessonSlides.vue';
 import { canPublishSource, useLiveRoom } from '../../composables/useLiveRoom';
-import { BOARD_SNAPSHOT_TOPIC, HAND_REASONS, SLIDES_TOPIC, formatElapsed, isTeacher, roleOf, shortName, tally, updateHands } from '../../utils/live';
+import {
+  BOARD_SNAPSHOT_TOPIC,
+  HAND_REASONS,
+  SLIDES_TOPIC,
+  choiceCounts,
+  formatElapsed,
+  gradeChoice,
+  isTeacher,
+  publicQuestion,
+  roleOf,
+  shortName,
+  tally,
+  updateHands,
+} from '../../utils/live';
 import { uploadFile } from '../../utils/upload';
 import LivePoll from './LivePoll.vue';
+import LiveQuestion from './LiveQuestion.vue';
 import VideoTile from './VideoTile.vue';
 
 const STATE_LABELS = { idle: 'Đang chuẩn bị', connecting: 'Đang kết nối…', connected: 'Đã kết nối', reconnecting: 'Đang kết nối lại…', disconnected: 'Mất kết nối' };
@@ -224,9 +288,11 @@ const sessionLessons = ref([]);
 const slideDeck = ref(null);
 const slideIndex = ref(0);
 const loadingDeck = ref(false);
-const STAGE_MODES = computed(() =>
-  sessionLessons.value.length ? [...BASE_STAGE_MODES, { value: 'slides', label: '📑 Slide' }] : BASE_STAGE_MODES,
-);
+const STAGE_MODES = computed(() => [
+  ...BASE_STAGE_MODES,
+  ...(sessionLessons.value.length ? [{ value: 'slides', label: '📑 Slide' }] : []),
+  ...(pboard.value ? [{ value: 'pboard', label: '🗂 Bảng riêng' }] : []),
+]);
 const deckOptions = computed(() => sessionLessons.value.map((l) => ({ value: l.id, label: l.name })));
 
 async function chooseDeck(lessonId) {
@@ -282,6 +348,23 @@ const micGranted = ref(new Set());
 const savingBoard = ref(false);
 const ending = ref(false);
 const now = ref(Date.now());
+const imagePicker = ref(null);
+/** Tự lưu nháp bảng (M42) */
+const draftSavedAt = ref(null);
+/** Câu hỏi từ ngân hàng (M45): câu đang hỏi (không có đáp án), kết quả khi chốt, câu trả lời giáo viên nhận */
+const bankQ = ref(null);
+const bankResult = ref(null);
+const bankAnswers = ref([]);
+const closingBank = ref(false);
+let bankFull = null;
+/** Bảng riêng (M45): { id, base: { elements, background }, by } */
+const pboard = ref(null);
+/** Giáo viên: identity → { identity, name, ops } */
+const pboards = ref(new Map());
+const pboardZoom = ref(null);
+const myPboard = ref(null);
+const pboardRefs = new Map();
+const pboardList = computed(() => [...pboards.value.values()]);
 let votes = new Map();
 let pollCorrect = [];
 let resultsTimer = null;
@@ -379,7 +462,43 @@ live.onMessage((msg, from) => {
       if (fromTeacher && Number.isInteger(msg.index)) slideIndex.value = msg.index;
       break;
     case 'board-op':
-      if (fromTeacher || writers.value.includes(from.identity)) board.value?.applyRemote(msg.op);
+      if (fromTeacher || writers.value.includes(from.identity)) {
+        board.value?.applyRemote(msg.op);
+        // Nét của học sinh lên bảng / trợ giảng cũng vào nháp tự lưu
+        markDirty(msg.op);
+      }
+      break;
+    case 'qpoll':
+      if (fromTeacher && msg.q) {
+        bankQ.value = { ...msg.q, by: from.identity };
+        bankResult.value = null;
+        tab.value = 'poll';
+      }
+      break;
+    case 'qanswer':
+      if (meTeacher && bankQ.value && msg.id === bankQ.value.id && !bankResult.value && roleOf(from) === 'student') {
+        const rest = bankAnswers.value.filter((a) => a.identity !== from.identity);
+        bankAnswers.value = [...rest, { identity: from.identity, name: from.name || from.identity, answer: msg.answer }];
+      }
+      break;
+    case 'qresult':
+      if (fromTeacher && bankQ.value && msg.id === bankQ.value.id) bankResult.value = msg.result;
+      break;
+    case 'qclear':
+      if (fromTeacher) {
+        bankQ.value = null;
+        bankResult.value = null;
+      }
+      break;
+    case 'pboard':
+      if (fromTeacher && msg.board) openMyPboard({ ...msg.board, by: from.identity });
+      break;
+    case 'pboard-end':
+      if (fromTeacher) pboard.value = null;
+      break;
+    case 'pboard-op':
+    case 'pboard-page':
+      if (meTeacher && pboard.value && msg.id === pboard.value.id && roleOf(from) === 'student') onStudentPboard(from, msg);
       break;
     case 'board-grant':
       if (fromTeacher) writers.value = Array.isArray(msg.writers) ? msg.writers : [];
@@ -452,6 +571,11 @@ live.onText(BOARD_SNAPSHOT_TOPIC, (text, info) => {
       slideDeck.value = { lessonId: s.slides.lessonId, title: s.slides.title, content: String(s.slides.content ?? '') };
       slideIndex.value = s.slides.index ?? 0;
     }
+    if (s.bank) {
+      bankQ.value = { ...s.bank.q, by: info.identity };
+      bankResult.value = s.bank.result ?? null;
+    }
+    if (s.pboard && !meTeacher) openMyPboard({ ...s.pboard, by: info.identity });
   } catch {
     /* bỏ qua ảnh chụp hỏng */
   }
@@ -470,6 +594,8 @@ function sendState(to) {
     results: poll.value && (results.value?.closed || poll.value.kind === 'poll') ? results.value : null,
     pollHistory: pollHistory.value,
     slides: slideDeck.value ? { ...slideDeck.value, index: slideIndex.value } : null,
+    bank: bankQ.value ? { q: { ...bankQ.value, by: undefined }, result: bankResult.value } : null,
+    pboard: pboard.value ? { id: pboard.value.id, base: pboard.value.base } : null,
   };
   live.sendText(JSON.stringify(s), BOARD_SNAPSHOT_TOPIC, to).catch(() => {});
 }
@@ -483,6 +609,265 @@ function pushChat(from, text) {
 
 function onBoardChange(e) {
   live.send({ t: 'board-op', op: e.detail.op });
+  markDirty(e.detail.op);
+}
+
+// ---------- Tự lưu nháp bảng (M42) ----------
+
+const dirtyPages = new Set();
+let draftTimer = null;
+let draftWarned = false;
+const clockText = (t) => new Date(t).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+/** Trang vừa đổi → lưu nháp sau 3 giây (gom nhiều nét). Chỉ một người lưu: chủ buổi, vắng thì trợ giảng. */
+function markDirty(op) {
+  if (!meTeacher || !board.value || !op) return;
+  if (!meOwner && teacher.value) return;
+  if (op.kind === 'page-add') dirtyPages.add(board.value.pageCount - 1);
+  else if (Number.isInteger(op.page)) dirtyPages.add(op.page);
+  else return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(flushDrafts, 3000);
+}
+
+async function flushDrafts() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  const b = board.value;
+  const pages = [...dirtyPages].filter((p) => b && p < b.pageCount);
+  dirtyPages.clear();
+  if (!pages.length) return;
+  try {
+    for (const page of pages) {
+      await liveApi.saveDraft(props.info.session.id, page, { data: b.elements(page), background: b.backgroundOf(page), pageCount: b.pageCount });
+    }
+    draftSavedAt.value = Date.now();
+  } catch (e) {
+    pages.forEach((p) => dirtyPages.add(p));
+    draftTimer = setTimeout(flushDrafts, 10000);
+    if (!draftWarned) {
+      draftWarned = true;
+      message.warning(`Chưa tự lưu được bảng (${e.message}) — sẽ thử lại.`);
+    }
+  }
+}
+
+// ---------- Ảnh trên bảng (M42) ----------
+
+function pickImage() {
+  imagePicker.value?.click();
+}
+
+async function onImagePicked(e) {
+  const files = [...e.target.files];
+  e.target.value = '';
+  for (const f of files) await insertImage(f);
+}
+
+function imageSize(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+/** Ảnh (chọn file / dán) → tải lên như ảnh nội dung → đặt giữa trang đang xem. */
+async function insertImage(file) {
+  if (!board.value || !meTeacher || !file) return;
+  if (!file.type.startsWith('image/')) {
+    message.warning('Chỉ chèn được ảnh (PNG, JPG, GIF, WebP). Đề PDF: chụp từng trang thành ảnh rồi chèn.');
+    return;
+  }
+  try {
+    const size = await imageSize(file).catch(() => ({}));
+    const saved = await uploadFile(file, 'content');
+    board.value.addImage(saved.url, size);
+  } catch (err) {
+    message.error(`Không chèn được ảnh: ${err.message}`);
+  }
+}
+
+// ---------- Câu hỏi từ ngân hàng (M45) ----------
+
+function startBank(q) {
+  if (q.kind === 'essay') {
+    message.warning('Câu tự luận không hỏi nhanh được — hãy giao trong đề.');
+    return;
+  }
+  bankFull = q;
+  bankQ.value = { ...publicQuestion(q, `${Date.now().toString(36)}${++seq}`), by: props.info.identity };
+  bankResult.value = null;
+  bankAnswers.value = [];
+  live.send({ t: 'qpoll', q: { ...bankQ.value, by: undefined } });
+}
+
+function submitBank(answer) {
+  const to = bankQ.value?.by ?? teacher.value?.identity;
+  if (!to || !bankQ.value) return;
+  live.send({ t: 'qanswer', id: bankQ.value.id, answer }, to);
+  message.success('Đã gửi câu trả lời.');
+}
+
+/** Chốt: chấm trắc nghiệm / đúng sai ngay ở máy giáo viên, trả lời ngắn chấm ở server; công bố + lưu kết quả. */
+async function closeBank() {
+  const q = bankFull;
+  if (!q || !bankQ.value) return;
+  closingBank.value = true;
+  try {
+    const list = bankAnswers.value;
+    const results =
+      q.kind === 'short'
+        ? list.length
+          ? (await teachingApi.checkAnswers(q.id, list.map((a) => String(a.answer?.text ?? '')))).results
+          : []
+        : list.map((a) => gradeChoice(q, a.answer));
+    const perStudent = Object.fromEntries(list.map((a, i) => [a.identity, Boolean(results[i])]));
+    const counts = q.kind === 'short' ? [] : choiceCounts(q, list.map((a) => a.answer));
+    const rightCount = results.filter(Boolean).length;
+    bankResult.value = {
+      rightCount,
+      voters: list.length,
+      counts,
+      correct: q.options.filter((o) => o.correct).map((o) => o.id),
+      accepted: q.accepted ?? [],
+      explanation: q.explanation ?? '',
+      perStudent,
+    };
+    live.send({ t: 'qresult', id: bankQ.value.id, result: bankResult.value });
+    pollHistory.value = [
+      ...pollHistory.value,
+      { id: bankQ.value.id, kind: 'question', question: q.content, options: q.options.map((o) => o.content), counts, rightCount, voters: list.length },
+    ];
+    liveApi
+      .savePoll(props.info.session.id, {
+        kind: 'question',
+        questionId: q.id,
+        questionKind: q.kind,
+        question: q.content,
+        options: q.options.map((o) => o.content),
+        correct: q.options.map((o, i) => (o.correct ? i : -1)).filter((i) => i >= 0),
+        counts,
+        voters: list.length,
+        rightCount,
+      })
+      .catch((e) => message.error(`Không lưu được kết quả: ${e.message}`));
+  } catch (e) {
+    message.error(e.message);
+  } finally {
+    closingBank.value = false;
+  }
+}
+
+function clearBank() {
+  bankQ.value = null;
+  bankResult.value = null;
+  bankAnswers.value = [];
+  bankFull = null;
+  live.send({ t: 'qclear' });
+}
+
+// ---------- Bảng riêng từng học sinh (M45) ----------
+
+/** Giáo viên: mỗi học sinh một bảng, chép trang đang giảng làm đề. */
+function startPboard() {
+  const b = board.value;
+  if (!b) return;
+  pboard.value = {
+    id: `${Date.now().toString(36)}${++seq}`,
+    base: { elements: b.elements(b.page), background: b.backgroundOf(b.page) },
+    by: props.info.identity,
+  };
+  const m = new Map();
+  for (const x of people.value) if (x.role === 'student') m.set(x.identity, { identity: x.identity, name: x.name, ops: [] });
+  pboards.value = m;
+  pboardZoom.value = null;
+  live.send({ t: 'pboard', board: { id: pboard.value.id, base: pboard.value.base } });
+  setStage('pboard');
+}
+
+const baseSnapshot = (base) => ({ pages: [base?.elements ?? []], backgrounds: [base?.background ?? 'none'], page: 0 });
+
+/** Ô bảng của một học sinh: nạp đề + phát lại các nét đã nhận. */
+function setPboardRef(identity, el) {
+  if (!el) {
+    pboardRefs.delete(identity);
+    return;
+  }
+  if (pboardRefs.get(identity) === el) return;
+  pboardRefs.set(identity, el);
+  el.loadSnapshot(baseSnapshot(pboard.value?.base));
+  for (const op of pboards.value.get(identity)?.ops ?? []) el.applyRemote(op);
+}
+
+function onStudentPboard(from, msg) {
+  let entry = pboards.value.get(from.identity);
+  if (!entry) {
+    entry = { identity: from.identity, name: from.name || from.identity, ops: [] };
+    pboards.value = new Map(pboards.value).set(from.identity, entry);
+  }
+  const ref = pboardRefs.get(from.identity);
+  if (msg.t === 'pboard-page') {
+    if (ref && Number.isInteger(msg.page)) ref.page = msg.page;
+    return;
+  }
+  entry.ops.push(msg.op);
+  // Đổi tham chiếu để số nét trên ô cập nhật
+  pboards.value = new Map(pboards.value);
+  ref?.applyRemote(msg.op);
+}
+
+/** Chiếu bảng của một em: chép trang đang xem sang trang mới của bảng chung. */
+function showPboard(s) {
+  const src = pboardRefs.get(s.identity);
+  if (!src || !board.value) return;
+  const elements = src.elements(src.page);
+  board.value.addPage(src.backgroundOf(src.page));
+  const op = { kind: 'add', page: board.value.page, elements };
+  board.value.applyRemote(op);
+  live.send({ t: 'board-op', op });
+  markDirty(op);
+  setStage('board');
+  message.success(`Đang chiếu bảng của ${s.name} (trang ${board.value.page + 1}).`);
+}
+
+function endPboard() {
+  pboard.value = null;
+  pboards.value = new Map();
+  pboardRefs.clear();
+  live.send({ t: 'pboard-end' });
+  setStage('board');
+}
+
+/** Học sinh: mở bảng riêng với đề giáo viên chép sang (nạp đề một lần khi bảng xuất hiện). */
+let pboardLoaded = null;
+function openMyPboard(b) {
+  if (meTeacher) return;
+  if (pboard.value?.id !== b.id) pboardLoaded = null;
+  pboard.value = b;
+  nextTick(loadMyPboard);
+}
+
+function loadMyPboard() {
+  const el = myPboard.value;
+  if (!el || !pboard.value || pboardLoaded === pboard.value.id) return;
+  pboardLoaded = pboard.value.id;
+  el.loadSnapshot(baseSnapshot(pboard.value.base));
+}
+// Bảng riêng có thể xuất hiện sau tin "mở bảng riêng" (khi tin đổi khung tới sau)
+watch(myPboard, loadMyPboard);
+
+function onMyPboardChange(e) {
+  if (pboard.value?.by) live.send({ t: 'pboard-op', id: pboard.value.id, op: e.detail.op }, pboard.value.by);
+}
+
+function onMyPboardPage(e) {
+  if (pboard.value?.by) live.send({ t: 'pboard-page', id: pboard.value.id, page: e.detail.page }, pboard.value.by);
 }
 
 function onBoardPage(e) {
@@ -510,10 +895,17 @@ async function saveBoard(notify) {
   savingBoard.value = true;
   try {
     for (let page = 0; page < board.value.pageCount; page += 1) {
-      const blob = await (await fetch(board.value.toDataURL(page))).blob();
+      // Chờ ảnh / công thức trên trang tải xong rồi mới chụp
+      const url = await board.value.toDataURLAsync(page);
+      const blob = await (await fetch(url)).blob();
       const file = new File([blob], `bang-trang-${page + 1}.png`, { type: 'image/png' });
       const saved = await uploadFile(file, 'content');
-      await liveApi.saveBoard(props.info.session.id, { page, fileId: saved.id, data: board.value.elements(page) });
+      await liveApi.saveBoard(props.info.session.id, {
+        page,
+        fileId: saved.id,
+        data: board.value.elements(page),
+        background: board.value.backgroundOf(page),
+      });
     }
     if (notify) message.success('Đã lưu bảng — học sinh xem lại được trong trang buổi học.');
   } catch (e) {
@@ -704,9 +1096,19 @@ onMounted(async () => {
   try {
     const r = await live.connect(props.info.url, props.info.token);
     if (meTeacher) {
-      r.on(RoomEvent.ParticipantConnected, (p) => sendState(p.identity));
-      const saved = await liveApi.boardData(props.info.session.id).catch(() => []);
-      if (saved.length && board.value) board.value.loadSnapshot({ pages: saved, page: 0 });
+      r.on(RoomEvent.ParticipantConnected, (p) => {
+        sendState(p.identity);
+        // Học sinh vào sau khi đã chia bảng riêng: có ô của em ngay
+        if (pboard.value && roleOf(p) === 'student' && !pboards.value.has(p.identity)) {
+          pboards.value = new Map(pboards.value).set(p.identity, { identity: p.identity, name: p.name || p.identity, ops: [] });
+        }
+      });
+      // Mở lại bảng: nháp tự lưu (tải lại trang / đổi máy) hoặc bảng đã lưu lúc kết thúc
+      const saved = await liveApi.boardData(props.info.session.id).catch(() => null);
+      if (saved?.pages?.length && board.value) {
+        board.value.loadSnapshot({ pages: saved.pages, backgrounds: saved.backgrounds, page: 0 });
+        if (saved.draft) message.info('Đã mở lại bảng đang dạy dở.');
+      }
       for (const p of r.remoteParticipants.values()) sendState(p.identity);
       if (props.info.session.access === 'public_link') {
         loadGuests();
@@ -733,6 +1135,8 @@ onBeforeUnmount(() => {
   clearInterval(clock);
   clearInterval(guestTimer);
   clearTimeout(resultsTimer);
+  // Lưu nốt nét vừa vẽ
+  if (dirtyPages.size) flushDrafts();
 });
 
 </script>
@@ -800,6 +1204,33 @@ onBeforeUnmount(() => {
 .slides-wrap {
   display: grid;
   gap: 8px;
+}
+.pboard-wrap {
+  display: grid;
+  gap: 8px;
+}
+.pboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.pboard-grid.zoomed {
+  grid-template-columns: 1fr;
+}
+.pboard-tile {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--hui-bg-container, #fff);
+}
+.link {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  color: var(--hui-primary, #0864ad);
+  font: inherit;
+  cursor: pointer;
 }
 .slides-pick hui-select {
   min-width: 260px;

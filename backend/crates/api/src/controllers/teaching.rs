@@ -34,9 +34,9 @@ use sls_core::{
         },
         questions::{
             dto::{
-                BulkCreateRequest, BulkCreateResponse, FolderInput, FolderResponse, ImportPreview, ImportQuery,
-                QuestionInput, QuestionQuery, QuestionResponse, RegradeResponse, SaveQuestionResponse,
-                WordImportRequest,
+                BulkCreateRequest, BulkCreateResponse, CheckAnswersRequest, CheckAnswersResponse, FolderInput,
+                FolderResponse, ImportPreview, ImportQuery, QuestionInput, QuestionQuery, QuestionResponse,
+                RegradeResponse, SaveQuestionResponse, WordImportRequest,
             },
             service as questions,
         },
@@ -94,6 +94,7 @@ pub fn routes() -> Router<AppContext> {
         .route("/questions/import/word/preview", post(import_word_preview))
         .route("/questions/{id}", get(get_question).put(update_question).delete(archive_question))
         .route("/questions/{id}/regrade", post(regrade_question))
+        .route("/questions/{id}/check", post(check_answers))
         .route("/question-folders", get(list_folders).post(create_folder))
         .route("/question-folders/{id}", axum::routing::put(update_folder).delete(delete_folder))
         // Đề
@@ -478,6 +479,15 @@ async fn regrade_question(
     PathParam(id): PathParam<Uuid>,
 ) -> AppResult<Json<RegradeResponse>> {
     Ok(Json(questions::regrade(&ctx, &actor, id).await?))
+}
+
+async fn check_answers(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(req): JsonBody<CheckAnswersRequest>,
+) -> AppResult<Json<CheckAnswersResponse>> {
+    Ok(Json(questions::check_answers(&ctx, &actor, id, req).await?))
 }
 
 async fn bulk_create(
