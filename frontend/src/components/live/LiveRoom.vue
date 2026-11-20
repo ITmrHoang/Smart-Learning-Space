@@ -7,6 +7,7 @@
       </div>
       <div class="row">
         <hui-tag v-if="state !== 'connected'" size="sm" :color="state === 'disconnected' ? 'danger' : 'warning'">{{ STATE_LABELS[state] }}</hui-tag>
+        <span v-if="pdfBusy" class="small">📄 {{ pdfBusy }}</span>
         <span v-if="meTeacher && draftSavedAt" class="muted small" title="Bảng tự lưu nháp: tải lại trang / đổi máy vẫn mở lại được">💾 tự lưu {{ clockText(draftSavedAt) }}</span>
         <span class="small">{{ people.length }} người</span>
         <hui-button v-if="!canPlayAudio" size="sm" @hui-click="startAudio">🔊 Bật âm thanh</hui-button>
@@ -44,7 +45,7 @@
             @hui-image-request="pickImage"
             @hui-paste-image="(e) => insertImage(e.detail.file)"
           />
-          <input ref="imagePicker" type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden @change="onImagePicked" />
+          <input ref="imagePicker" type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf" hidden @change="onImagePicked" />
         </div>
 
         <!-- Bảng riêng từng học sinh (M45) -->
@@ -272,6 +273,7 @@ import {
   updateHands,
 } from '../../utils/live';
 import { uploadFile } from '../../utils/upload';
+import { PDF_MAX_PAGES, importPdfPages, isPdf } from '../../utils/pdfPages';
 import LivePoll from './LivePoll.vue';
 import LiveQuestion from './LiveQuestion.vue';
 import VideoTile from './VideoTile.vue';
@@ -349,6 +351,8 @@ const savingBoard = ref(false);
 const ending = ref(false);
 const now = ref(Date.now());
 const imagePicker = ref(null);
+/** Đang nhập đề PDF: chữ báo tiến độ ('' = không) */
+const pdfBusy = ref('');
 /** Tự lưu nháp bảng (M42) */
 const draftSavedAt = ref(null);
 /** Câu hỏi từ ngân hàng (M45): câu đang hỏi (không có đáp án), kết quả khi chốt, câu trả lời giáo viên nhận */
@@ -677,11 +681,15 @@ function imageSize(file) {
   });
 }
 
-/** Ảnh (chọn file / dán) → tải lên như ảnh nội dung → đặt giữa trang đang xem. */
+/** Ảnh (chọn file / dán) → tải lên như ảnh nội dung → đặt giữa trang đang xem. PDF → nhập thành các trang bảng. */
 async function insertImage(file) {
   if (!board.value || !meTeacher || !file) return;
+  if (isPdf(file)) {
+    await importPdf(file);
+    return;
+  }
   if (!file.type.startsWith('image/')) {
-    message.warning('Chỉ chèn được ảnh (PNG, JPG, GIF, WebP). Đề PDF: chụp từng trang thành ảnh rồi chèn.');
+    message.warning('Chỉ chèn được ảnh (PNG, JPG, GIF, WebP) hoặc đề PDF.');
     return;
   }
   try {
@@ -690,6 +698,55 @@ async function insertImage(file) {
     board.value.addImage(saved.url, size);
   } catch (err) {
     message.error(`Không chèn được ảnh: ${err.message}`);
+  }
+}
+
+/** Số trang bảng tối đa (giống máy chủ). */
+const BOARD_MAX_PAGES = 50;
+
+/**
+ * Đề PDF → mỗi trang PDF thành một trang bảng mới, ảnh trang làm nền khóa (vẽ đè lên được, "Xóa trang" vẫn giữ đề).
+ * Trình duyệt tự đọc PDF; không đọc được thì máy chủ đọc (xem utils/pdfPages.js).
+ */
+async function importPdf(file) {
+  const b = board.value;
+  if (!b || !meTeacher) return;
+  if (pdfBusy.value) {
+    message.warning('Đang nhập một PDF khác — chờ xong rồi thử lại.');
+    return;
+  }
+  // Bảng mới tinh (một trang trống) → dùng luôn trang đó cho trang 1 của đề
+  const start = b.pageCount === 1 && !b.elements(0).length ? 0 : b.pageCount;
+  const room = BOARD_MAX_PAGES - start;
+  if (room <= 0) {
+    message.warning(`Bảng đã đủ ${BOARD_MAX_PAGES} trang.`);
+    return;
+  }
+  const sessionId = props.info.session.id;
+  pdfBusy.value = 'Đang mở PDF…';
+  try {
+    const result = await importPdfPages(file, {
+      maxPages: Math.min(PDF_MAX_PAGES, room),
+      upload: (image) => uploadFile(image, 'content'),
+      serverImport: async (pdf, maxPages) => {
+        const saved = await uploadFile(pdf, 'import');
+        return liveApi.importPdf(sessionId, { fileId: saved.id, maxPages });
+      },
+      onProgress: ({ via, done, total }) => {
+        if (via === 'server') pdfBusy.value = 'Máy chủ đang đọc PDF…';
+        else if (total) pdfBusy.value = `Đang đọc PDF: trang ${done}/${total}`;
+      },
+    });
+    result.pages.forEach((p, i) => b.addImage(p.url, { width: p.width, height: p.height, locked: true, page: start + i }));
+    b.page = start;
+    onBoardPage({ detail: { page: start } });
+    const n = result.pages.length;
+    const more = result.total > n ? ` (file có ${result.total} trang, mới lấy ${n} trang đầu)` : '';
+    message.success(`Đã thêm ${n} trang đề vào bảng${more}.`);
+  } catch (err) {
+    message.error(`Không nhập được PDF: ${err.message}`);
+  } finally {
+    pdfBusy.value = '';
   }
 }
 

@@ -14,6 +14,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 deunicode = "1.6.2"
 dotenvy = "0.15.7"
 getrandom = "0.4.3"
+hayro = "0.9.0"
 hex = "0.4.3"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] }
 lapin = { version = "4.12.3", default-features = false, features = ["default-runtime"] }

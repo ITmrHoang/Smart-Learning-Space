@@ -345,6 +345,8 @@ export const liveApi = {
   boardData: (id) => http.get(`/sessions/${id}/live/board`),
   /** Tự lưu nháp một trang bảng: { data, background, pageCount } */
   saveDraft: (id, page, data) => http.put(`/sessions/${id}/live/board/draft/${page}`, data),
+  /** Dự phòng khi trình duyệt không đọc được PDF: { fileId, maxPages } → { total, pages: [{ url, width, height }] } */
+  importPdf: (id, data) => http.post(`/sessions/${id}/live/board/pdf`, data),
   records: (id) => http.get(`/sessions/${id}/live/records`),
   // Khách (không cần đăng nhập)
   guestJoin: (id, key, name) => http.post(`/live/guest/${id}/join`, { key, name }),

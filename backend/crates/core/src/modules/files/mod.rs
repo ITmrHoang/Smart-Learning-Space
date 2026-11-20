@@ -8,7 +8,7 @@
 //! - `content`: ai có link cũng xem được (ID ngẫu nhiên 122 bit, không đoán được) — để `<img>` trong
 //!   Markdown hiện được mà không cần đăng nhập.
 //! - `homework`: bài làm của học sinh, link phải có chữ ký `?exp=&sig=` do API cấp cho người có quyền xem.
-//! - `import`: file Word (.docx) đề câu hỏi — chỉ để API đọc một lần rồi xóa (`take_import`).
+//! - `import`: file Word (.docx) đề câu hỏi hoặc PDF đề đưa lên bảng — chỉ để API đọc một lần rồi xóa (`take_import`).
 //!
 //! Ảnh API tự lưu (lấy ra từ file Word) đi qua `save_bytes`: trùng nội dung (SHA-256) thì dùng lại file cũ.
 
@@ -43,7 +43,7 @@ const UPLOADS_PER_HOUR: u32 = 200;
 pub enum Purpose {
     Content,
     Homework,
-    /// File Word đề câu hỏi: API đọc một lần rồi xóa.
+    /// File tạm để API đọc một lần rồi xóa: Word đề câu hỏi (.docx) hoặc PDF đề đưa lên bảng.
     Import,
     /// Tài liệu đính kèm bài học / giáo án (PDF, Word, Excel, PowerPoint): link có chữ ký như bài làm.
     Attachment,
@@ -81,7 +81,7 @@ impl Purpose {
         match self {
             Self::Content => IMAGE_TYPES.contains(&content_type),
             Self::Homework => IMAGE_TYPES.contains(&content_type) || content_type == "application/pdf",
-            Self::Import => content_type == DOCX,
+            Self::Import => content_type == DOCX || content_type == PDF,
             Self::Attachment => ATTACHMENT_TYPES.contains(&content_type),
         }
     }
@@ -91,7 +91,7 @@ impl Purpose {
             Self::Content => "Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.",
             Self::Homework => "Chỉ nhận ảnh (PNG, JPG, GIF, WebP) hoặc PDF.",
             Self::Import => {
-                "Chỉ nhận file Word .docx (Word 2007 trở lên; file .doc cũ hãy mở bằng Word rồi lưu lại dạng .docx)."
+                "Chỉ nhận file Word .docx (Word 2007 trở lên; file .doc cũ hãy mở bằng Word rồi lưu lại dạng .docx) hoặc PDF."
             }
             Self::Attachment => "Chỉ nhận PDF, Word (.docx), Excel (.xlsx) hoặc PowerPoint (.pptx).",
         }
@@ -99,6 +99,7 @@ impl Purpose {
 }
 
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+pub const PDF: &str = "application/pdf";
 pub const DOCX: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 pub const IMPORT_MAX_BYTES: i64 = 20 * 1024 * 1024;
 pub const XLSX: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -465,11 +466,22 @@ pub async fn save_bytes(
     .await?)
 }
 
-/// Đọc file Word người dùng vừa upload để nhập câu hỏi, rồi xóa luôn (file tạm, không giữ lại).
-pub async fn take_import(ctx: &AppContext, actor: &Actor, id: Uuid) -> AppResult<(String, Vec<u8>)> {
+/// Đọc file tạm người dùng vừa upload (Word đề câu hỏi, PDF đề đưa lên bảng), rồi xóa luôn (không giữ lại).
+/// `content_type`: loại file nơi gọi cần (`DOCX` / `PDF`) — sai loại thì coi như không có file.
+pub async fn take_import(
+    ctx: &AppContext,
+    actor: &Actor,
+    id: Uuid,
+    content_type: &str,
+) -> AppResult<(String, Vec<u8>)> {
     let row = find(ctx, id)
         .await?
-        .filter(|r| r.owner_id == actor.id && r.purpose == Purpose::Import.as_str() && r.status == "ready")
+        .filter(|r| {
+            r.owner_id == actor.id
+                && r.purpose == Purpose::Import.as_str()
+                && r.status == "ready"
+                && r.content_type == content_type
+        })
         .ok_or_else(not_found)?;
     let bytes = ctx.storage.get(&row.object_key, IMPORT_MAX_BYTES as usize).await;
     ctx.storage.delete(&row.object_key).await?;

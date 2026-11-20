@@ -497,7 +497,7 @@ Migration `20261120000001_essay_papers_sets.sql`:
 
 | Module | Nội dung | Trạng thái |
 |---|---|---|
-| **M42** | **Bảng không mất + nền + ảnh / PDF**: giáo viên vẽ đến đâu bảng tự lưu nháp lên server đến đó (từng trang, gom 3 giây) → tải lại trang / mất mạng / đổi máy vẫn mở lại đúng bảng. Nền từng trang: trắng, ô vuông, ô ly, dòng kẻ, chấm, hệ trục tọa độ. Chèn ảnh (chọn file / dán Ctrl + V); nhập PDF đề → mỗi trang PDF thành một trang bảng có ảnh nền khóa (vẽ đè lên, không xê dịch nhầm) | ✅ Xong (2026-11-20), trừ nhập PDF (chờ thêm thư viện `pdfjs-dist`) |
+| **M42** | **Bảng không mất + nền + ảnh / PDF**: giáo viên vẽ đến đâu bảng tự lưu nháp lên server đến đó (từng trang, gom 3 giây) → tải lại trang / mất mạng / đổi máy vẫn mở lại đúng bảng. Nền từng trang: trắng, ô vuông, ô ly, dòng kẻ, chấm, hệ trục tọa độ. Chèn ảnh (chọn file / dán Ctrl + V); nhập PDF đề → mỗi trang PDF thành một trang bảng có ảnh nền khóa (vẽ đè lên, không xê dịch nhầm) | ✅ Xong (2026-11-20; nhập PDF làm bổ sung cùng ngày) |
 | **M43** | **Chọn – di chuyển – đổi cỡ**: công cụ chọn (chạm một phần tử, Shift chọn thêm, kéo khung chọn nhiều), kéo để di chuyển, kéo góc để phóng to / thu nhỏ (ảnh, đồ thị, hình, công thức), Delete để xóa, Ctrl + D nhân bản; hoàn tác được và đồng bộ sang máy khác | ✅ Xong (2026-11-20) |
 | **M44** | **Công thức + hình học**: H-UI thêm `hui-math-input` (ô gõ công thức có bàn phím: phân số, căn, mũ, chỉ số, π, ≤ ≥ ≠, ∞, Δ, ∈ ℝ…, xem trước). Công cụ công thức trên bảng (LaTeX, vẽ bằng MathML). Hình học phẳng: điểm có nhãn tự đặt (A, B, C…), đoạn thẳng bắt dính vào điểm, đường tròn tâm – bán kính, đa giác, giữ Shift để thẳng góc 15°. Ô trả lời ngắn kiểu biểu thức của học sinh có bàn phím công thức | ✅ Xong (2026-11-20) |
 | **M45** | **Quiz từ ngân hàng + bảng riêng**: giáo viên chọn câu trong ngân hàng (một / nhiều đáp án, đúng sai, trả lời ngắn) để hỏi nhanh cả lớp, chấm tự động (trả lời ngắn chấm ở server, có sai số / biểu thức), lưu kết quả. **Bảng riêng từng học sinh**: "Mỗi em một bảng" (có thể chép trang đang giảng làm đề), giáo viên xem lưới bảng của cả lớp, mở to một bảng, chiếu bảng của một em cho cả lớp | ✅ Xong (2026-11-20) |
@@ -509,7 +509,7 @@ Migration `20261120000001_essay_papers_sets.sql`:
 | Lưu nháp bảng | Bảng `live_board_drafts (session_id, page, data, background, updated_at)`. Mỗi trang gửi riêng (`PUT …/live/board/draft/{page}`) để không vượt giới hạn 1 MB của API; chỉ trang vừa đổi mới gửi lại. Giáo viên / trợ giảng vào phòng: có nháp thì mở nháp, không thì mở bảng đã lưu lúc kết thúc. Học sinh vẫn nhận ảnh chụp bảng từ giáo viên như cũ |
 | Dữ liệu trang | Ảnh chụp bảng thêm `backgrounds` (nền từng trang) — ảnh chụp cũ không có thì nền trắng. Thao tác mới: `page-bg`, `update` nhiều phần tử một lần (di chuyển / đổi cỡ nhiều phần tử) |
 | Ảnh trên bảng | Phần tử `image` giữ link ảnh (file mục đích `content`, cùng tên miền) chứ không nhúng dữ liệu → thao tác nhỏ, đồng bộ nhanh. Ảnh nền trang PDF có cờ `locked`: công cụ chọn / tẩy bỏ qua |
-| PDF → trang bảng | Đọc PDF ngay ở trình duyệt bằng `pdfjs-dist` (chỉ tải khi bấm "Nhập PDF"), mỗi trang vẽ ra ảnh 1600 px rồi tải lên như ảnh nội dung. Server không phải đọc PDF |
+| PDF → trang bảng (hybrid) | **Trình duyệt đọc trước** bằng `pdfjs-dist` (chỉ trong app, H-UI không thêm thư viện; tải riêng khi giáo viên chọn PDF) → mỗi trang vẽ ra ảnh cao 1800 px (WebP, trình duyệt không có thì JPEG) → tải lên như ảnh nội dung → máy chủ không tốn gì. **Trình duyệt không đọc được** (máy / trình duyệt cũ, lỗi tải thư viện, lỗi vẽ) → gửi PDF lên (file tạm `import`), **máy chủ đọc bằng `hayro`** (Rust thuần, chỉ CPU): vẽ lần lượt từng trang ra PNG, trang xong lưu ngay rồi mới vẽ trang sau (RAM chỉ giữ ~1 trang), cùng lúc chỉ đọc 1 PDF, dừng sau 90 giây. PDF có mật khẩu / hỏng: báo luôn, không gửi máy chủ. Tối đa 30 trang mỗi lần, bảng tối đa 50 trang |
 | Công thức trên bảng | LaTeX → MathML (`hui-math`) → ảnh SVG (`foreignObject`) → vẽ lên canvas: công thức nằm trong ảnh chụp / ảnh xuất như nét vẽ, không cần lớp DOM phủ. Đã thử trên Chromium: vẽ được, không làm "bẩn" canvas khi xuất PNG |
 | Hình học | Không làm hình học động kiểu GeoGebra (kéo điểm hình đi theo) ở đợt này: điểm / đoạn / đường tròn / đa giác là phần tử tĩnh, có bắt dính vào điểm có sẵn — đủ vẽ hình minh họa khi chữa bài |
 | Bảng riêng | Nét vẽ của học sinh chỉ gửi cho người mở bảng riêng (giáo viên / trợ giảng), không gửi cả lớp; giáo viên giữ bảng của từng em trong máy, xem bằng các `hui-whiteboard` chỉ xem thu nhỏ. Bảng riêng giữ nguyên (chỉ ẩn) khi giáo viên chuyển khung khác → chiếu bảng một em không làm các em khác mất bài |
@@ -543,9 +543,30 @@ Migration `20261121000001_board_drafts_live_questions.sql`: bảng `live_board_d
 | H-UI | `hui-whiteboard` 6 test cũ giữ nguyên + 6 test mới (chọn – dời – đổi cỡ – nhân bản – xóa – khung chọn, nền trang, hình học + bắt dính + Shift 15°, công thức qua `hui-math-input`, ảnh / ảnh nền khóa / xóa trang, hàm hình học); `hui-math-input` 3 test. Chạy đủ các bước CI ở máy: build, types, CDN, trang mẫu, 225 file / 1622 test (gồm story), kích thước — đạt |
 | Trình duyệt (LiveKit thật, 2 tài khoản) | Giáo viên: nền hệ trục, điểm A, B (tự đặt tên), đoạn AB bắt dính, công thức nghiệm qua ô có bàn phím, đồ thị → "💾 tự lưu"; **tải lại trang → bảng mở lại đúng**. Học sinh vào → thấy đủ bảng + nền. Công cụ chọn dời đồ thị, dán ảnh đề (Ctrl + V) → học sinh thấy ngay, ảnh tải được. **Câu hỏi ngân hàng** (trả lời ngắn kiểu biểu thức): học sinh gõ `x^{2}` bằng bàn phím công thức → server chấm khớp `x^2` → học sinh thấy "✓ Bạn trả lời đúng", giáo viên 1/1 đúng. **Mỗi em một bảng**: học sinh nhận trang đề (nền + 6 phần tử), vẽ đường tròn bắt dính điểm A + nét bút → ô của em bên giáo viên cập nhật → "Chiếu cho cả lớp" thành trang 2 của bảng chung, bảng riêng của em vẫn còn. **Kết thúc buổi**: lưu 2 trang bảng (ảnh có công thức, ảnh chèn, đồ thị, nền), kết quả câu hỏi hiện ở trang buổi học. Sửa khi thử: bảng riêng của học sinh trống đề (tin "mở bảng riêng" tới trước tin đổi khung) và bị hủy khi giáo viên chuyển khung — giờ nạp đề khi bảng xuất hiện, giữ bảng (chỉ ẩn) |
 
-**Chưa làm được:** **nhập PDF đề thành trang bảng** — cần thêm thư viện `pdfjs-dist` (đọc PDF ở trình duyệt); lệnh cài
-thư viện bị chặn ở chế độ tự động nên chờ bạn đồng ý. Hiện tạm: chụp trang PDF thành ảnh rồi chèn / dán. Ảnh nền khóa
-(`addImage(…, { locked: true })`) đã có sẵn cho tính năng này.
+#### Bổ sung đợt 10: nhập đề PDF thành trang bảng (hybrid, 2026-11-20)
+
+Theo ý người dùng: trình duyệt đọc được thì để trình duyệt làm cho nhẹ máy chủ, không được thì máy chủ đọc; H-UI không
+thêm thư viện ngoài (H-UI không đổi — dùng `addImage(…, { locked: true })` có sẵn).
+
+| Phần | Mã |
+|---|---|
+| Frontend | `pdfjs-dist` 6.5.438 (chỉ ở app); `utils/pdfPages.js` (`renderPdfInBrowser`, `importPdfPages` — thử trình duyệt, lỗi đọc thì gọi máy chủ; lỗi tải ảnh lên / PDF có mật khẩu / hỏng thì báo luôn); `LiveRoom.vue`: nút 🖼 nhận cả PDF, chữ "📄 Đang đọc PDF: trang 3/10" trên thanh đầu phòng, bảng mới tinh thì dùng luôn trang trống đầu tiên, chuyển cả lớp tới trang đề đầu; `vite.config.js`: plugin phục vụ `/pdfjs/*` (font chuẩn, cmap, wasm giải mã ảnh scan) lúc dev, chép vào `dist/pdfjs/` lúc build; `upload.js`: file tạm `import` nhận thêm PDF |
+| Backend | `hayro` 0.9; `live/pdf.rs` (`render_pages` vẽ từng trang ra PNG, PNG quá 5 MB thì vẽ nhỏ lại; `import_pdf` lấy file tạm rồi xóa, vẽ trong `spawn_blocking`, mỗi trang gửi qua kênh để lưu ngay → RAM ~1 trang, 1 PDF cùng lúc, chờ lượt tối đa 60 giây, dừng sau 90 giây); `files`: `Purpose::Import` nhận PDF, `take_import` kiểm tra đúng loại file |
+
+| API | Mô tả |
+|---|---|
+| `POST /api/sessions/{id}/live/board/pdf` | Dự phòng: `{ fileId, maxPages? }` (file tạm `import`, đọc xong xóa) → `{ total, pages: [{ url, width, height }] }`; giáo viên / trợ giảng của buổi |
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Backend unit test (`sls-core`) | 90 / 90 đạt (1 bỏ qua) — thêm 4: tỉ lệ trang dọc / ngang, vẽ 2/3 trang ra PNG cao 1800 px, dừng khi bên nhận đóng + vẽ nhỏ lại khi PNG quá lớn, file không phải PDF |
+| Backend integration test | 109 / 109 đạt — thêm 1 (`live`): nhập PDF 3 trang lấy 2, tên ảnh "… - trang N.png", file PDF tạm đã xóa, dùng lại id → 404, học sinh 403, PDF hỏng → lỗi trường `file` |
+| `cargo fmt`, `cargo clippy -D warnings` | Đạt |
+| Frontend (Vitest) | 75 / 75 đạt — thêm 4 (`pdfPages`): tỉ lệ / tên / nhận PDF; trình duyệt đọc được không gọi máy chủ; trình duyệt lỗi → máy chủ (giữ giới hạn 30 trang); mật khẩu / lỗi tải ảnh lên không gửi máy chủ. `npm run build` đạt (pdfjs tách file riêng 444 kB + worker 1,3 MB, chỉ tải khi chọn PDF) |
+| Trình duyệt (LiveKit thật, 2 tài khoản) | PDF tiếng Việt 10 trang: **trình duyệt đọc** → 10 trang bảng có ảnh nền khóa (WebP ~340 kB/trang, phóng to 3 lần chữ vẫn nét). **Đường máy chủ** chạy thật ở lần thử đầu (lỗi `doc.destroy` của pdfjs 6 lúc dọn dẹp → tự chuyển máy chủ): `hayro` đọc 10 trang trong 4,6 giây, tiếng Việt / chữ đậm đúng. Học sinh đang trong phòng nhận ngay các trang mới và đi theo trang đề; học sinh vào sau thấy đủ; giáo viên tải lại trang → đủ 30 trang + ảnh đề. Sửa khi thử: pdfjs 6 bỏ `PDFDocumentProxy.destroy()` → dùng `loadingTask.destroy()`, lỗi lúc dọn dẹp không còn làm hỏng trang đã đọc |
+
+**Dữ liệu thử thêm trong DB dev:** buổi "Buổi thử nhập đề PDF" (lớp "Lớp thử chấm tự luận (đợt 9)", 30 trang bảng nháp) và
+30 ảnh trang đề.
 
 **Chưa thử được:** công thức trên bảng ở Safari (Safari không cho xuất canvas có ảnh SVG chứa HTML → "Lưu bảng" có thể
 lỗi khi trang có công thức; hiển thị vẫn đúng). Bảng riêng khi học sinh tải lại trang (nét đã vẽ của em mất ở máy em,
@@ -554,7 +575,7 @@ giáo viên vẫn giữ).
 **Dữ liệu thử thêm trong DB dev:** buổi "Buổi thử bảng WB2" (đã kết thúc, 2 trang bảng, 1 câu hỏi ngân hàng) của lớp
 "Lớp thử chấm tự luận (đợt 9)"; 1 ảnh nội dung "de-bai.png".
 
-**Để sau:** nhập PDF (khi thêm `pdfjs-dist`); hình học động (kéo điểm, hình đi theo), đo góc / độ dài; hình khối
+**Để sau:** trang PDF dọc (A4) hiện khá nhỏ trên khung bảng 16:9 → phóng to / kéo bảng, hoặc chia đôi trang dọc; hình học động (kéo điểm, hình đi theo), đo góc / độ dài; hình khối
 (`hui-solid`); bảng riêng lưu ở server (học sinh tải lại không mất); giáo viên chấm điểm bảng riêng; nhắc hạn làm bước đề.
 
 ### Triển khai production, một hoặc nhiều máy (2026-11-08)

@@ -12,6 +12,7 @@ use sls_core::{
         self, BoardDraftInput, BoardPageInput, BoardState, DecideInput, GuestJoinInput, GuestLink, GuestQuery,
         GuestState, GuestTicket, GuestView, IdentityInput, LiveJoin, LiveRecords, LiveStatus, MediaInput, PollInput,
         PollView,
+        pdf::{PdfImportInput, PdfImportView},
     },
     security::Actor,
 };
@@ -35,6 +36,7 @@ pub fn routes() -> Router<AppContext> {
         .route("/sessions/{id}/live/polls", post(save_poll))
         .route("/sessions/{id}/live/board", get(board_data).put(save_board))
         .route("/sessions/{id}/live/board/draft/{page}", axum::routing::put(save_draft))
+        .route("/sessions/{id}/live/board/pdf", post(import_pdf))
         .route("/sessions/{id}/live/records", get(records))
         // Khách (không cần đăng nhập)
         .route("/live/guest/{id}/join", post(guest_request))
@@ -167,6 +169,16 @@ async fn save_draft(
 ) -> AppResult<StatusCode> {
     live::save_draft(&ctx, &actor, id, page, input).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Dự phòng khi trình duyệt không tự đọc được PDF: máy chủ vẽ từng trang thành ảnh.
+async fn import_pdf(
+    State(ctx): State<AppContext>,
+    actor: Actor,
+    PathParam(id): PathParam<Uuid>,
+    JsonBody(input): JsonBody<PdfImportInput>,
+) -> AppResult<Json<PdfImportView>> {
+    Ok(Json(live::pdf::import_pdf(&ctx, &actor, id, input).await?))
 }
 
 async fn records(

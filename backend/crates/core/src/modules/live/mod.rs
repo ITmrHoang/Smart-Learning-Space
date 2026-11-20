@@ -10,6 +10,7 @@
 //! - Lưu lại sau buổi: kết quả bình chọn / quiz, ảnh từng trang bảng, lượt lên bảng của học sinh.
 
 pub mod livekit;
+pub mod pdf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

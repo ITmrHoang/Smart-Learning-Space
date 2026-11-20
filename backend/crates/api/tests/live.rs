@@ -340,6 +340,74 @@ async fn bang_nhap_nen_va_cau_hoi_ngan_hang(pool: PgPool) {
     assert_eq!(rec["polls"][0]["rightCount"], 2);
 }
 
+/// Upload file tạm (mục đích `import`) vào kho trong bộ nhớ, trả id.
+async fn upload_import(app: &TestApp, token: &str, name: &str, content_type: &str, bytes: Vec<u8>) -> String {
+    let res = app
+        .post(
+            "/api/files",
+            json!({ "purpose": "import", "name": name, "contentType": content_type, "size": bytes.len() }),
+            Some(token),
+        )
+        .await;
+    ok(&res, StatusCode::CREATED);
+    let id = res.body["id"].as_str().unwrap().to_string();
+    let key: String = sqlx::query_scalar("SELECT object_key FROM files WHERE id = $1::uuid")
+        .bind(&id)
+        .fetch_one(&app.ctx.db)
+        .await
+        .unwrap();
+    app.ctx.storage.memory_put(&key, &bytes, content_type);
+    ok(&app.post(&format!("/api/files/{id}/complete"), json!({}), Some(token)).await, StatusCode::OK);
+    id
+}
+
+/// Nhập PDF đề thành trang bảng — đường dự phòng ở máy chủ (khi trình duyệt không tự đọc được).
+#[sqlx::test(migrator = "sls_core::db::MIGRATOR")]
+async fn nhap_pdf_thanh_trang_bang_o_may_chu(pool: PgPool) {
+    use sls_core::modules::live::pdf::sample_pdf;
+
+    let (app, _) = live_app(pool).await;
+    let (_, t, toan) = teacher(&app, "gv", "toan").await;
+    let c = class(&app, &t, toan).await;
+    let (_, an) = app.login_as("hs_an", UserRole::Student).await;
+    ok(&app.post(&format!("/api/classes/{c}/enroll"), json!({}), Some(&an)).await, StatusCode::OK);
+    let s = live_session(&app, &t, &c, -5, "invited").await;
+    let url = format!("/api/sessions/{s}/live/board/pdf");
+
+    // 3 trang, chỉ lấy 2 (bảng còn chỗ 2 trang) → ảnh PNG nội dung, file PDF tạm bị xóa
+    let pdf = upload_import(&app, &t, "Đề kiểm tra.pdf", "application/pdf", sample_pdf(3)).await;
+    let res = app.post(&url, json!({ "fileId": pdf, "maxPages": 2 }), Some(&t)).await;
+    ok(&res, StatusCode::OK);
+    assert_eq!(res.body["total"], 3);
+    let pages = res.body["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 2);
+    assert_eq!(pages[0]["height"], 1800);
+    assert!(pages[0]["url"].as_str().unwrap().starts_with("/api/files/"));
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM files WHERE purpose = 'content' AND content_type = 'image/png' ORDER BY name",
+    )
+    .fetch_all(&app.ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(names, ["Đề kiểm tra - trang 1.png", "Đề kiểm tra - trang 2.png"]);
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM files WHERE id = $1::uuid")
+        .bind(&pdf)
+        .fetch_one(&app.ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(left, 0, "file PDF tạm đã xóa");
+    // Gọi lại với file đã dùng → không còn
+    assert_eq!(app.post(&url, json!({ "fileId": pdf }), Some(&t)).await.status, StatusCode::NOT_FOUND);
+
+    // Học sinh không được nhập; file không đọc được → lỗi trường `file`
+    let pdf = upload_import(&app, &t, "de.pdf", "application/pdf", sample_pdf(1)).await;
+    assert_eq!(app.post(&url, json!({ "fileId": pdf }), Some(&an)).await.status, StatusCode::FORBIDDEN);
+    let broken = upload_import(&app, &t, "hong.pdf", "application/pdf", b"%PDF-1.4\nrac".to_vec()).await;
+    let res = app.post(&url, json!({ "fileId": broken }), Some(&t)).await;
+    assert_eq!(res.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(res.body["error"]["fields"]["file"][0].as_str().unwrap().contains("PDF"));
+}
+
 #[sqlx::test(migrator = "sls_core::db::MIGRATOR")]
 async fn khach_vao_bang_link_qua_phong_cho(pool: PgPool) {
     let (app, calls) = live_app(pool).await;

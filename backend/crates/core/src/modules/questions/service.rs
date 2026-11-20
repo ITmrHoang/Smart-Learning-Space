@@ -323,7 +323,7 @@ pub async fn import_preview(
 /// Nhập từ Word: đọc file .docx vừa upload (rồi xóa), lưu ảnh trong đề thành ảnh nội dung.
 pub async fn import_word_preview(ctx: &AppContext, actor: &Actor, req: WordImportRequest) -> AppResult<ImportPreview> {
     teachers::ensure_can_teach(ctx, actor, req.subject_id).await?;
-    let (_, bytes) = files::take_import(ctx, actor, req.file_id).await?;
+    let (_, bytes) = files::take_import(ctx, actor, req.file_id, files::DOCX).await?;
     let word::WordImport { items, images } = word::parse_docx(&bytes, &tag_lookup(ctx, actor, req.subject_id).await?)?;
     let mut preview = check_items(req.subject_id, items);
 

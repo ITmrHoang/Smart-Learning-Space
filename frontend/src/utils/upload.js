@@ -2,7 +2,8 @@
  * Upload file (M21): xin link → trình duyệt PUT thẳng lên Garage (qua `/files/*` cùng domain) → báo xong.
  * - `content`: ảnh trong nội dung (bài học, câu hỏi, hỏi đáp, hồ sơ) — tối đa 5 MB.
  * - `homework`: ảnh / PDF bài làm — tối đa 15 MB; ảnh chụp điện thoại quá lớn được thu nhỏ trước khi gửi.
- * - `import`: file Word (.docx) đề câu hỏi — tối đa 20 MB; API đọc một lần rồi xóa.
+ * - `import`: file tạm API đọc một lần rồi xóa — Word (.docx) đề câu hỏi, PDF đề đưa lên bảng (khi trình duyệt
+ *   không tự đọc được) — tối đa 20 MB.
  * - `attachment`: tài liệu đính kèm bài học / giáo án (PDF, Word, Excel, PowerPoint) — tối đa 20 MB.
  */
 import { fileApi } from '../api';
@@ -27,7 +28,9 @@ export function fileType(file) {
 /** Lỗi trước khi upload ('' = hợp lệ). */
 export function checkFile(file, purpose) {
   if (purpose === 'import') {
-    if (fileType(file) !== DOCX) return 'Chỉ nhận file Word .docx (file .doc cũ: mở bằng Word rồi lưu lại dạng .docx).';
+    if (![DOCX, 'application/pdf'].includes(fileType(file))) {
+      return 'Chỉ nhận file Word .docx (file .doc cũ: mở bằng Word rồi lưu lại dạng .docx) hoặc PDF.';
+    }
   } else if (purpose === 'attachment') {
     if (!ATTACHMENT_TYPES.includes(fileType(file))) return 'Chỉ nhận PDF, Word (.docx), Excel (.xlsx) hoặc PowerPoint (.pptx).';
   } else {
